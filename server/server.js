@@ -3,18 +3,25 @@ const multer = require('multer');
 const axios = require('axios');
 const path = require('path');
 
+const PORT = process.env.PORT || 3000;
+
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
-// 👉 Replace with your ngrok URL
 const PRINT_AGENT_URL = "https://beaked-unpretentiously-rebeca.ngrok-free.dev/print";
+
+// ✅ Homepage fix
+app.get('/', (req, res) => {
+    res.send("✅ Server is running");
+});
 
 app.post('/upload', upload.single('pdf'), async (req, res) => {
     try {
-        const fileUrl = `http://192.168.29.235:3000/uploads/${req.file.filename}`;
+        // ✅ FIXED URL
+        const fileUrl = `https://print-agm.onrender.com/uploads/${req.file.filename}`;
 
         const { duplex } = req.body;
 
@@ -32,4 +39,4 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.listen(3000, () => console.log("Server running on 3000"));
+app.listen(PORT, () => console.log("Server running"));
