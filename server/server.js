@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3000;
 
 const app = express();
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
@@ -15,7 +15,7 @@ const PRINT_AGENT_URL = "https://beaked-unpretentiously-rebeca.ngrok-free.dev/pr
 
 // ✅ Homepage fix
 app.get('/', (req, res) => {
-    res.send("✅ Server is running");
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.post('/upload', upload.single('pdf'), async (req, res) => {
