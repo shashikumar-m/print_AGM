@@ -12,7 +12,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
 // Point to laptop print agent via ngrok
-const PRINT_AGENT_URL = process.env.PRINT_AGENT_URL || "https://beaked-unpretentiously-rebeca.ngrok-free.app/print";
+const PRINT_AGENT_URL = process.env.PRINT_AGENT_URL || "https://beaked-unpretentiously-rebeca.ngrok-free.dev/print";
 
 // ✅ Homepage fix
 app.get('/', (req, res) => {
