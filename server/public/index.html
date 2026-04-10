@@ -1,23 +1,64 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Print PDF</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrintHub - Smart Printing System</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div class="container">
+        <div class="login-container">
+            <div class="logo">
+                <h1>🖨️ PrintHub</h1>
+                <p>Smart Student Printing System</p>
+            </div>
 
-<h2>Upload PDF to Print</h2>
+            <!-- Login Form -->
+            <form id="loginForm" class="form-section">
+                <h2>Login</h2>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="loginEmail" required placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="loginPassword" required placeholder="Enter your password">
+                </div>
+                <button type="submit" class="btn btn-primary">Login</button>
+            </form>
 
-<form id="uploadForm">
-    <input type="file" name="pdf" required><br><br>
+            <!-- Register Form -->
+            <form id="registerForm" class="form-section" style="display:none;">
+                <h2>Create Account</h2>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="registerName" required placeholder="Full name">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="registerEmail" required placeholder="Email address">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="registerPassword" required placeholder="Create password">
+                </div>
+                <button type="submit" class="btn btn-primary">Register</button>
+            </form>
 
-    <label>
-        <input type="checkbox" name="duplex">
-        Print on both sides
-    </label><br><br>
+            <div class="form-toggle">
+                <p id="toggleText">Don't have an account? <a href="#" id="toggleBtn">Register</a></p>
+            </div>
 
-    <button type="submit">Print</button>
-</form>
+            <!-- Demo Credentials -->
+            <div class="demo-section">
+                <h3>Demo Credentials</h3>
+                <p><strong>Admin:</strong> admin@example.com / admin123</p>
+                <p><strong>Student:</strong> student@example.com / student123</p>
+            </div>
+        </div>
+    </div>
 
-<script src="script.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
