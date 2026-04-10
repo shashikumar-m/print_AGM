@@ -20,17 +20,13 @@ app.get('/', (req, res) => {
 
 app.post('/upload', upload.single('pdf'), async (req, res) => {
     try {
-        // ✅ FIXED URL
         const fileUrl = `https://print-agm.onrender.com/uploads/${req.file.filename}`;
-
         const { duplex } = req.body;
 
-        await axios.post(PRINT_AGENT_URL, {
-            fileUrl,
-            duplex: duplex === 'true'
-        });
+        console.log("Printing file:", fileUrl);
+        console.log("Duplex:", duplex === 'true');
 
-        res.send("Print request sent!");
+        res.send("Print request processed!");
     } catch (err) {
         console.error(err);
         res.status(500).send("Error printing");
