@@ -424,11 +424,6 @@ async function submitPDF() {
         progressContainer.remove();
         showAlert('Upload failed', 'error');
     }
-            showAlert(data.error, 'error');
-        }
-    } catch (err) {
-        showAlert('Upload failed', 'error');
-    }
 }
 
 // ============ ADMIN FUNCTIONS ============
