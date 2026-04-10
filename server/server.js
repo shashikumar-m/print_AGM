@@ -38,23 +38,6 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 });
 
 
-app.post('/print', async (req, res) => {
-    try {
-        const { fileUrl, duplex } = req.body;
-
-        console.log("Printing file:", fileUrl);
-        console.log("Duplex:", duplex);
-
-        // TODO: Add actual printing logic here
-        // Example: send to printer / download file / etc.
-
-        res.send("Print started successfully");
-    } catch (err) {
-        console.error(err);
-        res.status(500).send("Print failed");
-    }
-});
-
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
