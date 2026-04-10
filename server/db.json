@@ -1,0 +1,22 @@
+{
+  "users": [
+    {
+      "id": "admin1",
+      "email": "admin@example.com",
+      "password": "$2b$10$qnGFANJETl/Chw2tIeIrFu2Y7CdPdI04Iiq4niffcTnMcdSzZ9J22",
+      "role": "admin",
+      "name": "Admin"
+    }
+  ],
+  "students": [
+    {
+      "id": "student1",
+      "email": "student@example.com",
+      "password": "$2b$10$yqzwWWSuqwm50NDm3O5tTuFbkFKZ78jQ0j4uKdmTQCDGI33f5Knky",
+      "role": "student",
+      "name": "John Doe",
+      "wallet": 500
+    }
+  ],
+  "printJobs": []
+}

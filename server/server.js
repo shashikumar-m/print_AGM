@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const pdfParse = require('pdf-parse');
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = 'your-secret-key-change-in-production';
@@ -157,9 +157,15 @@ app.get('/api/student/wallet', verifyToken, (req, res) => {
 
 // ============ UPLOAD & COUNT PAGES ============
 async function countPages(filePath) {
-    const fileBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(fileBuffer);
-    return data.numpages;
+    try {
+        const fileBuffer = fs.readFileSync(filePath);
+        const data = await pdfParse(fileBuffer);
+        return data.numpages || 1;
+    } catch (err) {
+        console.error('Error parsing PDF:', err);
+        // Fallback: estimate 1 page minimum
+        return 1;
+    }
 }
 
 app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
