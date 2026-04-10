@@ -11,7 +11,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
-const PRINT_AGENT_URL = "https://beaked-unpretentiously-rebeca.ngrok-free.dev/print";
+const PRINT_AGENT_URL = "https://print-agm.onrender.com/print";
 
 // ✅ Homepage fix
 app.get('/', (req, res) => {
