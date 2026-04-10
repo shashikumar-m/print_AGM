@@ -434,21 +434,28 @@ async function loadStudents() {
         });
         const students = await response.json();
 
-        let html = '';
+        // Populate student list
+        let html = '<table class="students-table"><thead><tr><th>Name</th><th>Email</th><th>Wallet</th><th>Action</th></tr></thead><tbody>';
         students.forEach(student => {
             html += `
-                <div class="student-item">
-                    <div class="student-info">
-                        <h3>${student.name}</h3>
-                        <p>${student.email}</p>
-                    </div>
-                    <div class="wallet-display">₹${student.wallet}</div>
-                    <button class="btn-add-wallet" onclick="openWalletModal('${student.id}', '${student.name}')">Add Wallet</button>
-                </div>
+                <tr class="student-row">
+                    <td><strong>${student.name}</strong></td>
+                    <td>${student.email}</td>
+                    <td class="wallet-cell">₹${student.wallet || 0}</td>
+                    <td><button class="btn btn-small" onclick="openWalletModal('${student._id}', '${student.name}')">Add Funds</button></td>
+                </tr>
             `;
         });
+        html += '</tbody></table>';
 
         document.getElementById('studentsList').innerHTML = html;
+
+        // Also populate dropdown for modal
+        let selectHtml = '';
+        students.forEach(student => {
+            selectHtml += `<option value="${student._id}">${student.name} (${student.email})</option>`;
+        });
+        document.getElementById('studentSelect').innerHTML = selectHtml;
     } catch (err) {
         showAlert('Failed to load students', 'error');
     }

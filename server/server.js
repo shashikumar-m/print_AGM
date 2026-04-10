@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 
 // Import pdf-parse correctly
 let pdfParse;
@@ -21,7 +22,7 @@ try {
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = 'your-secret-key-change-in-production';
-const PRICE_PER_PAGE = 1; // Rs. per page - DEFAULT VALUE
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/printer_system';
 
 const app = express();
 app.use(express.json());
@@ -32,45 +33,77 @@ const upload = multer({ dest: path.join(__dirname, 'uploads') });
 // Print agent URL
 const PRINT_AGENT_URL = process.env.PRINT_AGENT_URL || "http://localhost:5000/print";
 
-// ============ DATABASE (File-based) ============
-const DB_FILE = path.join(__dirname, 'db.json');
+// ============ CONNECTION ============
+mongoose.connect(MONGODB_URI)
+    .then(() => console.log('✅ MongoDB connected'))
+    .catch(err => {
+        console.error('❌ MongoDB connection error:', err);
+        console.log('Using fallback file-based DB');
+    });
 
-function getDB() {
-    if (!fs.existsSync(DB_FILE)) {
-        const defaultDB = {
-            settings: {
-                pricePerPage: 1
-            },
-            users: [
-                {
-                    id: 'admin1',
-                    email: 'admin@example.com',
-                    password: bcrypt.hashSync('admin123', 10),
-                    role: 'admin',
-                    name: 'Admin'
-                }
-            ],
-            students: [
-                {
-                    id: 'student1',
-                    email: 'student@example.com',
-                    password: bcrypt.hashSync('student123', 10),
-                    role: 'student',
-                    name: 'John Doe',
-                    wallet: 500
-                }
-            ],
-            printJobs: []
-        };
-        fs.writeFileSync(DB_FILE, JSON.stringify(defaultDB, null, 2));
-        return defaultDB;
+// ============ MONGOOSE SCHEMAS ============
+const userSchema = new mongoose.Schema({
+    email: { type: String, unique: true, required: true },
+    password: { type: String, required: true },
+    role: { type: String, enum: ['admin', 'student'], default: 'student' },
+    name: String,
+    wallet: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const settingsSchema = new mongoose.Schema({
+    pricePerPage: { type: Number, default: 1 }
+});
+
+const printJobSchema = new mongoose.Schema({
+    studentId: String,
+    studentName: String,
+    fileName: String,
+    pages: Number,
+    cost: Number,
+    status: { type: String, enum: ['pending', 'printing', 'completed', 'failed'], default: 'pending' },
+    duplex: Boolean,
+    createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+const Settings = mongoose.model('Settings', settingsSchema);
+const PrintJob = mongoose.model('PrintJob', printJobSchema);
+
+// ============ INIT DB ============
+async function initDB() {
+    try {
+        const adminExists = await User.findOne({ email: 'admin@example.com' });
+        if (!adminExists) {
+            await User.create({
+                email: 'admin@example.com',
+                password: bcrypt.hashSync('admin123', 10),
+                role: 'admin',
+                name: 'Admin'
+            });
+        }
+
+        const studentExists = await User.findOne({ email: 'student@example.com' });
+        if (!studentExists) {
+            await User.create({
+                email: 'student@example.com',
+                password: bcrypt.hashSync('student123', 10),
+                role: 'student',
+                name: 'John Doe',
+                wallet: 500
+            });
+        }
+
+        const settingsExists = await Settings.findOne();
+        if (!settingsExists) {
+            await Settings.create({ pricePerPage: 1 });
+        }
+    } catch (err) {
+        console.log('Init DB error (might be offline):', err.message);
     }
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
 }
 
-function saveDB(db) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
+initDB();
 
 // ============ MIDDLEWARE ============
 const verifyToken = (req, res, next) => {
@@ -86,111 +119,148 @@ const verifyToken = (req, res, next) => {
 };
 
 // ============ AUTH ROUTES ============
-app.post('/api/auth/login', (req, res) => {
-    const { email, password } = req.body;
-    const db = getDB();
-    
-    const allUsers = [...db.users, ...db.students];
-    const user = allUsers.find(u => u.email === email);
-    
-    if (!user || !bcrypt.compareSync(password, user.password)) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const user = await User.findOne({ email });
+        
+        if (!user || !bcrypt.compareSync(password, user.password)) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        
+        const token = jwt.sign(
+            { id: user._id, email: user.email, role: user.role, name: user.name },
+            JWT_SECRET
+        );
+        
+        res.json({ 
+            token, 
+            user: { 
+                id: user._id, 
+                email: user.email, 
+                role: user.role, 
+                name: user.name, 
+                wallet: user.wallet 
+            } 
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Login error' });
     }
-    
-    const token = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, name: user.name },
-        JWT_SECRET
-    );
-    
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role, name: user.name, wallet: user.wallet } });
 });
 
-app.post('/api/auth/register', (req, res) => {
-    const { email, password, name } = req.body;
-    const db = getDB();
-    
-    const allUsers = [...db.users, ...db.students];
-    if (allUsers.find(u => u.email === email)) {
-        return res.status(400).json({ error: 'Email already exists' });
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { email, password, name } = req.body;
+        
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ error: 'Email already exists' });
+        }
+        
+        const newStudent = new User({
+            email,
+            password: bcrypt.hashSync(password, 10),
+            role: 'student',
+            name,
+            wallet: 0
+        });
+        
+        await newStudent.save();
+        res.json({ message: 'Student registered successfully' });
+    } catch (err) {
+        res.status(500).json({ error: 'Registration error' });
     }
-    
-    const newStudent = {
-        id: 'student_' + Date.now(),
-        email,
-        password: bcrypt.hashSync(password, 10),
-        role: 'student',
-        name,
-        wallet: 0
-    };
-    
-    db.students.push(newStudent);
-    saveDB(db);
-    
-    res.json({ message: 'Student registered successfully' });
 });
 
 // ============ ADMIN ROUTES ============
-app.get('/api/admin/students', verifyToken, (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
-    
-    const db = getDB();
-    res.json(db.students);
+app.get('/api/admin/students', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        
+        const students = await User.find({ role: 'student' }).select('-password');
+        res.json(students);
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching students' });
+    }
 });
 
-app.post('/api/admin/add-wallet', verifyToken, (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
-    
-    const { studentId, amount } = req.body;
-    const db = getDB();
-    
-    const student = db.students.find(s => s.id === studentId);
-    if (!student) return res.status(404).json({ error: 'Student not found' });
-    
-    student.wallet += amount;
-    saveDB(db);
-    
-    res.json({ message: 'Wallet updated', wallet: student.wallet });
+app.post('/api/admin/add-wallet', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        
+        const { studentId, amount } = req.body;
+        
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ error: 'Student not found' });
+        
+        student.wallet += parseInt(amount);
+        await student.save();
+        
+        res.json({ message: 'Wallet updated', wallet: student.wallet });
+    } catch (err) {
+        res.status(500).json({ error: 'Error updating wallet' });
+    }
 });
 
-app.get('/api/admin/print-jobs', verifyToken, (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
-    
-    const db = getDB();
-    res.json(db.printJobs);
+app.get('/api/admin/print-jobs', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        
+        const jobs = await PrintJob.find().sort({ createdAt: -1 });
+        res.json(jobs);
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching print jobs' });
+    }
 });
 
 // ============ SETTINGS ROUTES ============
-app.get('/api/settings', (req, res) => {
-    const db = getDB();
-    res.json(db.settings || { pricePerPage: 1 });
+app.get('/api/settings', async (req, res) => {
+    try {
+        let settings = await Settings.findOne();
+        if (!settings) {
+            settings = await Settings.create({ pricePerPage: 1 });
+        }
+        res.json(settings);
+    } catch (err) {
+        res.json({ pricePerPage: 1 });
+    }
 });
 
-app.post('/api/admin/settings', verifyToken, (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
-    
-    const { pricePerPage } = req.body;
-    const db = getDB();
-    
-    if (!pricePerPage || pricePerPage <= 0) {
-        return res.status(400).json({ error: 'Invalid price' });
+app.post('/api/admin/settings', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        
+        const { pricePerPage } = req.body;
+        
+        if (!pricePerPage || pricePerPage <= 0) {
+            return res.status(400).json({ error: 'Invalid price' });
+        }
+        
+        let settings = await Settings.findOne();
+        if (!settings) {
+            settings = new Settings();
+        }
+        settings.pricePerPage = pricePerPage;
+        await settings.save();
+        
+        res.json({ message: 'Settings updated', settings });
+    } catch (err) {
+        res.status(500).json({ error: 'Error updating settings' });
     }
-    
-    db.settings = db.settings || {};
-    db.settings.pricePerPage = pricePerPage;
-    saveDB(db);
-    
-    res.json({ message: 'Settings updated', settings: db.settings });
 });
 
 // ============ STUDENT ROUTES ============
-app.get('/api/student/wallet', verifyToken, (req, res) => {
-    if (req.user.role !== 'student') return res.status(403).json({ error: 'Unauthorized' });
-    
-    const db = getDB();
-    const student = db.students.find(s => s.id === req.user.id);
-    
-    if (!student) return res.status(404).json({ error: 'Student not found' });
-    res.json({ wallet: student.wallet });
+app.get('/api/student/wallet', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'student') return res.status(403).json({ error: 'Unauthorized' });
+        
+        const student = await User.findById(req.user.id);
+        if (!student) return res.status(404).json({ error: 'Student not found' });
+        
+        res.json({ wallet: student.wallet });
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching wallet' });
+    }
 });
 
 // ============ UPLOAD & COUNT PAGES ============
@@ -231,11 +301,11 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
         const pages = await countPages(filePath);
         
         // Get dynamic price from settings
-        const db = getDB();
-        const pricePerPage = db.settings?.pricePerPage || PRICE_PER_PAGE;
+        const settings = await Settings.findOne();
+        const pricePerPage = settings?.pricePerPage || 1;
         const cost = pages * pricePerPage;
         
-        const student = db.students.find(s => s.id === req.user.id);
+        const student = await User.findById(req.user.id);
         
         if (!student) return res.status(404).json({ error: 'Student not found' });
         if (student.wallet < cost) {
@@ -245,21 +315,19 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
         
         // Deduct from wallet
         student.wallet -= cost;
+        await student.save();
         
         // Record print job
-        const printJob = {
-            id: 'job_' + Date.now(),
+        const printJob = new PrintJob({
             studentId: req.user.id,
             studentName: req.user.name,
             fileName: req.file.originalname,
             pages: pages,
             cost: cost,
             status: 'pending',
-            createdAt: new Date(),
             duplex: req.body.duplex === 'true'
-        };
-        db.printJobs.push(printJob);
-        saveDB(db);
+        });
+        await printJob.save();
         
         // Send to print agent
         const fileUrl = `https://print-agm.onrender.com/uploads/${req.file.filename}`;
@@ -275,14 +343,14 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
             console.error('Print agent error:', err.message);
         }
         
-        saveDB(db);
+        await printJob.save();
         
         res.json({
             message: 'PDF submitted for printing',
             pages,
             cost,
             remainingWallet: student.wallet,
-            jobId: printJob.id
+            jobId: printJob._id
         });
         
     } catch (err) {
