@@ -5,7 +5,19 @@ const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+
+// Import pdf-parse correctly
+let pdfParse;
+try {
+    pdfParse = require('pdf-parse/lib/pdf.js');
+} catch (e) {
+    try {
+        pdfParse = require('pdf-parse');
+    } catch (err) {
+        console.warn('pdf-parse not available, using page count fallback');
+        pdfParse = null;
+    }
+}
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = 'your-secret-key-change-in-production';
@@ -159,12 +171,29 @@ app.get('/api/student/wallet', verifyToken, (req, res) => {
 async function countPages(filePath) {
     try {
         const fileBuffer = fs.readFileSync(filePath);
-        const data = await pdfParse(fileBuffer);
-        return data.numpages || 1;
+        
+        // Try using pdfParse if available
+        if (pdfParse) {
+            try {
+                const data = await pdfParse(fileBuffer);
+                return data.numpages || 1;
+            } catch (err) {
+                console.log('pdfParse error, using fallback');
+            }
+        }
+        
+        // Fallback: count /Pages in PDF
+        const text = fileBuffer.toString('binary');
+        const pageMatches = text.match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/);
+        if (pageMatches && pageMatches[1]) {
+            return parseInt(pageMatches[1]);
+        }
+        
+        // Last resort: estimate 1 page per ~5KB
+        return Math.max(1, Math.ceil(fileBuffer.length / 5000));
     } catch (err) {
-        console.error('Error parsing PDF:', err);
-        // Fallback: estimate 1 page minimum
-        return 1;
+        console.error('Error counting pages:', err);
+        return 1; // Default to 1 page
     }
 }
 
