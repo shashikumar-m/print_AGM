@@ -1,5 +1,6 @@
 let currentUser = null;
 let token = null;
+let settings = { pricePerPage: 1 }; // Global settings
 
 // API Base URL
 const API_URL = window.location.origin + '/api';
@@ -193,7 +194,7 @@ async function showStudentDashboard() {
                 <div class="wallet-card">
                     <h2>💰 Your Wallet Balance</h2>
                     <div class="wallet-amount"><span>₹</span><span id="walletAmount">0</span></div>
-                    <p>Price: ₹1 per page</p>
+                    <p>Price: ₹<span id="pricePerPage">1</span> per page</p>
                 </div>
 
                 <div class="upload-section">
@@ -226,7 +227,9 @@ async function showStudentDashboard() {
         </div>
     `;
 
-    // Load wallet
+    // Load settings and wallet
+    await loadSettings();
+    document.getElementById('pricePerPage').textContent = settings.pricePerPage;
     await loadStudentWallet();
 
     // Setup file upload
@@ -246,17 +249,41 @@ async function showAdminDashboard() {
             <div class="dashboard-content">
                 <div id="alertContainer"></div>
                 
+                <!-- Tab Navigation -->
+                <div class="tab-navigation">
+                    <button class="tab-btn active" onclick="switchAdminTab('students')">👥 Students</button>
+                    <button class="tab-btn" onclick="switchAdminTab('jobs')">🖨️ Print Jobs</button>
+                    <button class="tab-btn" onclick="switchAdminTab('settings')">⚙️ Settings</button>
+                </div>
+
                 <div class="admin-container">
                     <!-- Students Section -->
-                    <div class="admin-section">
+                    <div class="admin-section" id="studentsTab">
                         <h2>👥 Manage Students</h2>
                         <div id="studentsList"></div>
                     </div>
 
                     <!-- Print Jobs Section -->
-                    <div class="admin-section">
+                    <div class="admin-section" id="jobsTab" style="display:none;">
                         <h2>🖨️ Print Jobs</h2>
                         <div id="printJobsList"></div>
+                    </div>
+
+                    <!-- Settings Section -->
+                    <div class="admin-section" id="settingsTab" style="display:none;">
+                        <h2>⚙️ System Settings</h2>
+                        <div class="settings-form">
+                            <div class="input-group">
+                                <label>Price Per Page (₹)</label>
+                                <div style="display: flex; gap: 10px;">
+                                    <input type="number" id="priceInput" min="0.5" step="0.5" placeholder="Enter price">
+                                    <button class="btn btn-primary" onclick="updatePrice()" style="width: 150px;">Update Price</button>
+                                </div>
+                            </div>
+                            <div style="margin-top: 20px; padding: 15px; background: #f0f0ff; border-radius: 8px;">
+                                <p><strong>Current Price:</strong> ₹<span id="currentPrice">1</span> per page</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -279,6 +306,11 @@ async function showAdminDashboard() {
             </div>
         </div>
     `;
+
+    // Load settings first
+    await loadSettings();
+    document.getElementById('priceInput').value = settings.pricePerPage;
+    document.getElementById('currentPrice').textContent = settings.pricePerPage;
 
     // Load students and print jobs
     await loadStudents();
@@ -318,9 +350,46 @@ async function submitPDF() {
         return;
     }
 
+    const file = fileInput.files[0];
     const formData = new FormData();
-    formData.append('pdf', fileInput.files[0]);
+    formData.append('pdf', file);
     formData.append('duplex', document.getElementById('duplexCheckbox').checked);
+
+    // Show progress indicator
+    const progressContainer = document.createElement('div');
+    progressContainer.id = 'printProgress';
+    progressContainer.innerHTML = `
+        <div class="progress-overlay">
+            <div class="progress-content">
+                <h3>🖨️ Printing in Progress</h3>
+                <div class="page-counter">
+                    <div class="page-display" id="pageDisplay">Page 1</div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p id="statusText">Preparing to print...</p>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(progressContainer);
+
+    // Simulate page progress
+    const updateProgress = (currentPage, totalPages) => {
+        const percentage = (currentPage / totalPages) * 100;
+        document.getElementById('pageDisplay').textContent = `Page ${currentPage}/${totalPages}`;
+        document.getElementById('progressFill').style.width = percentage + '%';
+        document.getElementById('statusText').textContent = `Printing page ${currentPage} of ${totalPages}...`;
+    };
+
+    // Start simulated progress
+    let currentPage = 1;
+    const progressInterval = setInterval(() => {
+        if (currentPage < 100) {
+            updateProgress(currentPage, 100);
+            currentPage += Math.random() * 15;
+        }
+    }, 300);
 
     try {
         const response = await fetch(`${API_URL}/upload`, {
@@ -331,13 +400,30 @@ async function submitPDF() {
 
         const data = await response.json();
 
+        clearInterval(progressInterval);
+
         if (response.ok) {
-            showAlert(`Success! Pages: ${data.pages}, Cost: ₹${data.cost}, Remaining: ₹${data.remainingWallet}`, 'success');
-            document.getElementById('walletAmount').textContent = data.remainingWallet;
-            fileInput.value = '';
-            document.getElementById('fileName').textContent = '';
-            document.getElementById('costSummary').style.display = 'none';
+            // Show final progress
+            updateProgress(data.pages, data.pages);
+            document.getElementById('statusText').textContent = `Success! ${data.pages} pages will be printed.`;
+            
+            setTimeout(() => {
+                progressContainer.remove();
+                showAlert(`✅ Success! Pages: ${data.pages}, Cost: ₹${data.cost}, Remaining: ₹${data.remainingWallet}`, 'success');
+                document.getElementById('walletAmount').textContent = data.remainingWallet;
+                fileInput.value = '';
+                document.getElementById('fileName').textContent = '';
+                document.getElementById('costSummary').style.display = 'none';
+            }, 1500);
         } else {
+            progressContainer.remove();
+            showAlert(data.error, 'error');
+        }
+    } catch (err) {
+        clearInterval(progressInterval);
+        progressContainer.remove();
+        showAlert('Upload failed', 'error');
+    }
             showAlert(data.error, 'error');
         }
     } catch (err) {
@@ -444,6 +530,70 @@ async function addWallet() {
         }
     } catch (err) {
         showAlert('Failed to update wallet', 'error');
+    }
+}
+
+// ============ SETTINGS FUNCTIONS ============
+async function loadSettings() {
+    try {
+        const response = await fetch(`${API_URL}/settings`);
+        settings = await response.json();
+    } catch (err) {
+        console.log('Failed to load settings, using defaults');
+    }
+}
+
+async function updatePrice() {
+    const price = parseFloat(document.getElementById('priceInput').value);
+    
+    if (!price || price <= 0) {
+        showAlert('Enter valid price', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/admin/settings`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ pricePerPage: price })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            settings = data.settings;
+            document.getElementById('currentPrice').textContent = price;
+            showAlert(`Price updated to ₹${price} per page`, 'success');
+        } else {
+            showAlert(data.error, 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to update price', 'error');
+    }
+}
+
+function switchAdminTab(tab) {
+    // Hide all tabs
+    document.getElementById('studentsTab').style.display = 'none';
+    document.getElementById('jobsTab').style.display = 'none';
+    document.getElementById('settingsTab').style.display = 'none';
+    
+    // Remove active class from all buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    
+    // Show selected tab
+    if (tab === 'students') {
+        document.getElementById('studentsTab').style.display = 'block';
+        document.querySelectorAll('.tab-btn')[0].classList.add('active');
+    } else if (tab === 'jobs') {
+        document.getElementById('jobsTab').style.display = 'block';
+        document.querySelectorAll('.tab-btn')[1].classList.add('active');
+    } else if (tab === 'settings') {
+        document.getElementById('settingsTab').style.display = 'block';
+        document.querySelectorAll('.tab-btn')[2].classList.add('active');
     }
 }
 

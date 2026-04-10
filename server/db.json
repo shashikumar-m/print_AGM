@@ -16,6 +16,14 @@
       "role": "student",
       "name": "John Doe",
       "wallet": 500
+    },
+    {
+      "id": "student_1775842482556",
+      "email": "1@1",
+      "password": "$2b$10$39bZjIw2abdSmKTGiuLubOkRV4qSQqVBvhNZ2xwKOknrAg2V62Sei",
+      "role": "student",
+      "name": "shashi",
+      "wallet": 0
     }
   ],
   "printJobs": []

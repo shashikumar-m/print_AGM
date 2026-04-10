@@ -21,7 +21,7 @@ try {
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = 'your-secret-key-change-in-production';
-const PRICE_PER_PAGE = 1; // Rs. per page
+const PRICE_PER_PAGE = 1; // Rs. per page - DEFAULT VALUE
 
 const app = express();
 app.use(express.json());
@@ -38,6 +38,9 @@ const DB_FILE = path.join(__dirname, 'db.json');
 function getDB() {
     if (!fs.existsSync(DB_FILE)) {
         const defaultDB = {
+            settings: {
+                pricePerPage: 1
+            },
             users: [
                 {
                     id: 'admin1',
@@ -156,6 +159,29 @@ app.get('/api/admin/print-jobs', verifyToken, (req, res) => {
     res.json(db.printJobs);
 });
 
+// ============ SETTINGS ROUTES ============
+app.get('/api/settings', (req, res) => {
+    const db = getDB();
+    res.json(db.settings || { pricePerPage: 1 });
+});
+
+app.post('/api/admin/settings', verifyToken, (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+    
+    const { pricePerPage } = req.body;
+    const db = getDB();
+    
+    if (!pricePerPage || pricePerPage <= 0) {
+        return res.status(400).json({ error: 'Invalid price' });
+    }
+    
+    db.settings = db.settings || {};
+    db.settings.pricePerPage = pricePerPage;
+    saveDB(db);
+    
+    res.json({ message: 'Settings updated', settings: db.settings });
+});
+
 // ============ STUDENT ROUTES ============
 app.get('/api/student/wallet', verifyToken, (req, res) => {
     if (req.user.role !== 'student') return res.status(403).json({ error: 'Unauthorized' });
@@ -203,9 +229,12 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
         
         const filePath = req.file.path;
         const pages = await countPages(filePath);
-        const cost = pages * PRICE_PER_PAGE;
         
+        // Get dynamic price from settings
         const db = getDB();
+        const pricePerPage = db.settings?.pricePerPage || PRICE_PER_PAGE;
+        const cost = pages * pricePerPage;
+        
         const student = db.students.find(s => s.id === req.user.id);
         
         if (!student) return res.status(404).json({ error: 'Student not found' });
