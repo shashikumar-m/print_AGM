@@ -33,20 +33,22 @@ mongoose.connect(MONGODB_URI)
 //  SCHEMAS
 // ════════════════════════════════════════════════════════════════════════════
 const userSchema = new mongoose.Schema({
-    email:     { type: String, unique: true, required: true },
-    password:  { type: String, required: true },
-    role:      { type: String, enum: ['admin', 'student', 'faculty'], default: 'student' },
-    name:      String,
-    section:   String,
-    department:String,          // faculty department
-    wallet:    { type: Number, default: 0 },
-    isFaculty: { type: Boolean, default: false },
-    createdAt: { type: Date, default: Date.now }
+    email:      { type: String, unique: true, required: true },
+    password:   { type: String, required: true },
+    role:       { type: String, enum: ['admin', 'student', 'faculty'], default: 'student' },
+    name:       String,
+    section:    String,
+    department: String,
+    wallet:     { type: Number, default: 0 },
+    isFaculty:  { type: Boolean, default: false },
+    assignedPrinterId: String,   // override printer for this specific user
+    createdAt:  { type: Date, default: Date.now }
 });
 
 const sectionSchema = new mongoose.Schema({
-    name:      { type: String, required: true, unique: true },
-    createdAt: { type: Date, default: Date.now }
+    name:              { type: String, required: true, unique: true },
+    assignedPrinterId: String,   // default printer for all students in this section
+    createdAt:         { type: Date, default: Date.now }
 });
 
 // Printer Location — each physical printer in the college
@@ -222,6 +224,24 @@ app.delete('/api/admin/sections/:id', verifyToken, requireAdmin, async (req, res
     catch { res.status(500).json({ error: 'Error' }); }
 });
 
+// Assign printer to a section (all students in that section use this printer)
+app.post('/api/admin/sections/:id/assign-printer', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const { printerId } = req.body;
+        await Section.findByIdAndUpdate(req.params.id, { assignedPrinterId: printerId || '' });
+        res.json({ message: 'Printer assigned to section' });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Assign printer to a specific user (overrides section default)
+app.post('/api/admin/users/:id/assign-printer', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const { printerId } = req.body;
+        await User.findByIdAndUpdate(req.params.id, { assignedPrinterId: printerId || '' });
+        res.json({ message: 'Printer assigned to user' });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  UPLOAD  (students + faculty)
 // ════════════════════════════════════════════════════════════════════════════
@@ -279,10 +299,24 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
             remainingWallet = student.wallet;
         }
 
-        // Resolve printer location
+        // Resolve printer location:
+        // Priority: 1) user explicitly chose one  2) user's assigned printer  3) section's printer  4) default
+        let resolvedPrinterId = printerLocationId || '';
         let locationName = 'Main Printer';
-        if (printerLocationId) {
-            const loc = await PrinterLocation.findById(printerLocationId).select('name');
+
+        if (!resolvedPrinterId) {
+            // Auto-resolve from user or section assignment
+            const userDoc = await User.findById(req.user.id);
+            if (userDoc?.assignedPrinterId) {
+                resolvedPrinterId = userDoc.assignedPrinterId;
+            } else if (userDoc?.section) {
+                const sec = await Section.findOne({ name: userDoc.section });
+                if (sec?.assignedPrinterId) resolvedPrinterId = sec.assignedPrinterId;
+            }
+        }
+
+        if (resolvedPrinterId) {
+            const loc = await PrinterLocation.findById(resolvedPrinterId).select('name');
             if (loc) locationName = loc.name;
         }
 
@@ -302,7 +336,7 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
             pageRangeFrom:       pageFrom,
             pageRangeTo:         pageTo,
             pagesPerSheet,
-            printerLocationId,
+            printerLocationId:   resolvedPrinterId,
             printerLocationName: locationName,
             fileUrl:             'pending',
             fileData

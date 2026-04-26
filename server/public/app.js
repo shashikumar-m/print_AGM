@@ -404,6 +404,8 @@ async function showAdminDashboard() {
       <div class="admin-tabs">
         <button class="tab-btn active" onclick="switchTab('students',this)">👥 Students</button>
         <button class="tab-btn"        onclick="switchTab('jobs',this)">🖨️ Print Jobs</button>
+        <button class="tab-btn"        onclick="switchTab('faculty',this)">🎓 Faculty</button>
+        <button class="tab-btn"        onclick="switchTab('printers',this)">🖨️ Printers</button>
         <button class="tab-btn"        onclick="switchTab('sections',this)">🗂️ Sections</button>
         <button class="tab-btn"        onclick="switchTab('settings',this)">⚙️ Settings</button>
       </div>
@@ -447,6 +449,27 @@ async function showAdminDashboard() {
             <button class="btn btn-primary btn-sm" onclick="showCreateSection()">+ New Section</button>
           </div>
           <div id="sectionsList"></div>
+        </div>
+
+        <!-- FACULTY TAB -->
+        <div id="tab-faculty" class="tab-panel" style="display:none">
+          <div class="panel-header">
+            <h2>🎓 Faculty</h2>
+            <button class="btn btn-primary btn-sm" onclick="showAddFacultyModal()">+ Add Faculty</button>
+          </div>
+          <div id="facultyList"></div>
+        </div>
+
+        <!-- PRINTERS TAB -->
+        <div id="tab-printers" class="tab-panel" style="display:none">
+          <div class="panel-header">
+            <h2>🖨️ Printer Locations</h2>
+            <button class="btn btn-primary btn-sm" onclick="showAddPrinterModal()">+ Add Printer</button>
+          </div>
+          <p style="color:#64748b;font-size:13px;margin-bottom:16px;">
+            Each printer location has a unique Agent Key. Copy it into the <code>print-agent/.env</code> file on that PC.
+          </p>
+          <div id="printersList"></div>
         </div>
 
         <!-- SETTINGS TAB -->
@@ -540,6 +563,78 @@ async function showAdminDashboard() {
           <input type="number" id="addStudentWallet" placeholder="0" min="0" value="0">
         </div>
         <button class="btn btn-primary" onclick="createStudent()">Add Student</button>
+      </div>
+    </div>
+
+    <!-- Add Faculty Modal -->
+    <div id="addFacultyModal" class="modal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Add Faculty</h3>
+          <button class="modal-close" onclick="document.getElementById('addFacultyModal').classList.remove('active')">✕</button>
+        </div>
+        <p class="modal-sub" style="color:#10b981;font-weight:600">Faculty get free unlimited printing</p>
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="addFacultyName" placeholder="Dr. / Prof. name">
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="addFacultyEmail" placeholder="faculty@college.com">
+        </div>
+        <div class="form-group">
+          <label>Password *</label>
+          <input type="password" id="addFacultyPass" value="faculty123">
+        </div>
+        <div class="form-group">
+          <label>Department</label>
+          <input type="text" id="addFacultyDept" placeholder="e.g. CSE, ECE">
+        </div>
+        <div class="form-group">
+          <label>Assign Printer</label>
+          <select id="addFacultyPrinter">
+            <option value="">— Select printer —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="createFaculty()">Add Faculty</button>
+      </div>
+    </div>
+
+    <!-- Add Printer Modal -->
+    <div id="addPrinterModal" class="modal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Add Printer Location</h3>
+          <button class="modal-close" onclick="document.getElementById('addPrinterModal').classList.remove('active')">✕</button>
+        </div>
+        <p class="modal-sub">e.g. HOD Room, Lab 1, Library</p>
+        <div class="form-group">
+          <label>Printer Name *</label>
+          <input type="text" id="addPrinterName" placeholder="e.g. HOD Room Printer">
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="addPrinterDesc" placeholder="e.g. Ground floor, near reception">
+        </div>
+        <button class="btn btn-primary" onclick="createPrinter()">Add Printer</button>
+      </div>
+    </div>
+
+    <!-- Assign Printer Modal -->
+    <div id="assignPrinterModal" class="modal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3 id="assignPrinterTitle">Assign Printer</h3>
+          <button class="modal-close" onclick="document.getElementById('assignPrinterModal').classList.remove('active')">✕</button>
+        </div>
+        <p id="assignPrinterSub" class="modal-sub"></p>
+        <div class="form-group">
+          <label>Select Printer</label>
+          <select id="assignPrinterSelect">
+            <option value="">— No printer assigned (use default) —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="doAssignPrinter()">Assign</button>
       </div>
     </div>`;
 
@@ -817,3 +912,259 @@ async function saveSettings() {
         else { showAlert(d.error||'Failed','error'); }
     } catch { showAlert('Failed to save','error'); }
 }
+
+// ── Printers ──────────────────────────────────────────────────
+let allPrinters = [];
+
+async function loadPrinters() {
+    try {
+        const r = await fetch(API+'/admin/printer-locations', {headers:{'Authorization':`Bearer ${token}`}});
+        allPrinters = await r.json();
+        renderPrinters();
+    } catch { showAlert('Failed to load printers','error'); }
+}
+
+function renderPrinters() {
+    const el = document.getElementById('printersList');
+    if (!el) return;
+    if (!allPrinters.length) {
+        el.innerHTML = `<div class="empty-state">No printers yet. Click "+ Add Printer" to create one.</div>`;
+        return;
+    }
+    el.innerHTML = allPrinters.map(p => `
+      <div class="printer-card">
+        <div class="printer-header">
+          <div class="printer-status ${p.isOnline ? 'online' : 'offline'}">
+            <span class="status-dot"></span>
+            ${p.isOnline ? 'Online' : 'Offline'}
+          </div>
+          <button class="btn btn-sm btn-red" onclick="deletePrinter('${p._id}','${p.name}')">Delete</button>
+        </div>
+        <div class="printer-name">🖨️ ${p.name}</div>
+        ${p.description ? `<div class="printer-desc">${p.description}</div>` : ''}
+        ${p.lastSeen ? `<div class="printer-lastseen">Last seen: ${new Date(p.lastSeen).toLocaleString()}</div>` : ''}
+        <div class="printer-key-wrap">
+          <label>Agent Key (copy to print-agent/.env)</label>
+          <div class="printer-key-row">
+            <code class="printer-key" id="key-${p._id}">${p.agentKey}</code>
+            <button class="btn btn-sm" onclick="copyKey('${p._id}')">📋 Copy</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="openAssignModal('section','${p._id}','${p.name}')">Assign to Section</button>
+          <button class="btn btn-sm" onclick="openAssignModal('user','${p._id}','${p.name}')">Assign to User</button>
+        </div>
+      </div>`).join('');
+}
+
+function copyKey(printerId) {
+    const key = document.getElementById('key-'+printerId)?.textContent;
+    if (key) {
+        navigator.clipboard.writeText(key).then(() => showAlert('Agent key copied!','success'));
+    }
+}
+
+function showAddPrinterModal() {
+    document.getElementById('addPrinterName').value = '';
+    document.getElementById('addPrinterDesc').value = '';
+    document.getElementById('addPrinterModal').classList.add('active');
+    setTimeout(() => document.getElementById('addPrinterName').focus(), 100);
+}
+
+async function createPrinter() {
+    const name = document.getElementById('addPrinterName').value.trim();
+    const desc = document.getElementById('addPrinterDesc').value.trim();
+    if (!name) { showAlert('Printer name required','error'); return; }
+    try {
+        const r = await fetch(API+'/admin/printer-locations', {
+            method:'POST', headers:authHeaders(),
+            body: JSON.stringify({ name, description: desc })
+        });
+        const d = await r.json();
+        if (r.ok) {
+            showAlert(`Printer "${name}" added`,'success');
+            document.getElementById('addPrinterModal').classList.remove('active');
+            await loadPrinters();
+        } else { showAlert(d.error||'Failed','error'); }
+    } catch { showAlert('Failed','error'); }
+}
+
+async function deletePrinter(id, name) {
+    if (!confirm(`Delete printer "${name}"?`)) return;
+    try {
+        const r = await fetch(API+'/admin/printer-locations/'+id, {method:'DELETE',headers:authHeaders()});
+        if (r.ok) { showAlert(`"${name}" deleted`,'success'); await loadPrinters(); }
+        else { showAlert('Failed','error'); }
+    } catch { showAlert('Failed','error'); }
+}
+
+// ── Assign printer modal ──────────────────────────────────────
+let _assignType = ''; // 'section' or 'user'
+let _assignPrinterId = '';
+
+function openAssignModal(type, printerId, printerName) {
+    _assignType = type;
+    _assignPrinterId = printerId;
+    document.getElementById('assignPrinterTitle').textContent =
+        `Assign "${printerName}" to ${type === 'section' ? 'Section' : 'User'}`;
+
+    const sel = document.getElementById('assignPrinterSelect');
+    sel.innerHTML = '<option value="">— Remove assignment —</option>';
+
+    if (type === 'section') {
+        document.getElementById('assignPrinterSub').textContent =
+            'All students in the selected section will print to this printer by default.';
+        allSections.forEach(s => {
+            sel.innerHTML += `<option value="${s._id}">${s.name}</option>`;
+        });
+    } else {
+        document.getElementById('assignPrinterSub').textContent =
+            'This user will always print to this printer (overrides section default).';
+        [...allStudents, ...allFaculty].forEach(u => {
+            sel.innerHTML += `<option value="${u._id}">${u.name} (${u.role})</option>`;
+        });
+    }
+    document.getElementById('assignPrinterModal').classList.add('active');
+}
+
+async function doAssignPrinter() {
+    const targetId = document.getElementById('assignPrinterSelect').value;
+    if (!targetId) { showAlert('Select a target','error'); return; }
+    try {
+        const url = _assignType === 'section'
+            ? `${API}/admin/sections/${targetId}/assign-printer`
+            : `${API}/admin/users/${targetId}/assign-printer`;
+        const r = await fetch(url, {
+            method:'POST', headers:authHeaders(),
+            body: JSON.stringify({ printerId: _assignPrinterId })
+        });
+        const d = await r.json();
+        if (r.ok) {
+            showAlert('Printer assigned successfully','success');
+            document.getElementById('assignPrinterModal').classList.remove('active');
+        } else { showAlert(d.error||'Failed','error'); }
+    } catch { showAlert('Failed','error'); }
+}
+
+// ── Faculty ───────────────────────────────────────────────────
+let allFaculty = [];
+
+async function loadFaculty() {
+    try {
+        const r = await fetch(API+'/admin/faculty', {headers:{'Authorization':`Bearer ${token}`}});
+        allFaculty = await r.json();
+        renderFaculty();
+    } catch { showAlert('Failed to load faculty','error'); }
+}
+
+function renderFaculty() {
+    const el = document.getElementById('facultyList');
+    if (!el) return;
+    if (!allFaculty.length) {
+        el.innerHTML = `<div class="empty-state">No faculty yet. Click "+ Add Faculty" to create one.</div>`;
+        return;
+    }
+    el.innerHTML = `<table class="data-table">
+      <thead><tr><th>Name</th><th>Department</th><th>Email</th><th>Printer</th><th>Action</th></tr></thead>
+      <tbody>${allFaculty.map(f => {
+        const printer = allPrinters.find(p => p._id === f.assignedPrinterId);
+        return `<tr>
+          <td><div class="student-name-cell">
+            <div class="avatar" style="background:#7c3aed">${f.name[0]?.toUpperCase()||'?'}</div>
+            <strong>${f.name}</strong>
+          </div></td>
+          <td>${f.department ? `<span class="sec-tag" style="background:#ede9fe;color:#7c3aed">${f.department}</span>` : '—'}</td>
+          <td class="muted">${f.email}</td>
+          <td>${printer
+            ? `<span class="sec-tag" style="background:#d1fae5;color:#065f46">🖨️ ${printer.name}</span>`
+            : '<span class="muted">Not assigned</span>'}</td>
+          <td>
+            <button class="btn btn-sm" onclick="openAssignUserPrinter('${f._id}','${f.name}')">Assign Printer</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function openAssignUserPrinter(userId, userName) {
+    _assignType = 'user';
+    document.getElementById('assignPrinterTitle').textContent = `Assign Printer to "${userName}"`;
+    document.getElementById('assignPrinterSub').textContent = 'This faculty will print to the selected printer.';
+    const sel = document.getElementById('assignPrinterSelect');
+    sel.innerHTML = '<option value="">— Remove assignment —</option>';
+    allPrinters.forEach(p => {
+        sel.innerHTML += `<option value="${p._id}">🖨️ ${p.name}${p.isOnline?' ✅':''}</option>`;
+    });
+    // Override doAssignPrinter to use userId directly
+    _assignPrinterId = '';
+    window._assignUserId = userId;
+    document.getElementById('assignPrinterModal').classList.add('active');
+}
+
+// Override doAssignPrinter to handle direct user assignment
+const _origDoAssign = doAssignPrinter;
+window.doAssignPrinter = async function() {
+    if (window._assignUserId) {
+        const printerId = document.getElementById('assignPrinterSelect').value;
+        try {
+            const r = await fetch(`${API}/admin/users/${window._assignUserId}/assign-printer`, {
+                method:'POST', headers:authHeaders(),
+                body: JSON.stringify({ printerId })
+            });
+            const d = await r.json();
+            if (r.ok) {
+                showAlert('Printer assigned','success');
+                document.getElementById('assignPrinterModal').classList.remove('active');
+                window._assignUserId = null;
+                await loadFaculty();
+                await loadStudents();
+            } else { showAlert(d.error||'Failed','error'); }
+        } catch { showAlert('Failed','error'); }
+    } else {
+        await _origDoAssign();
+    }
+};
+
+function showAddFacultyModal() {
+    document.getElementById('addFacultyName').value = '';
+    document.getElementById('addFacultyEmail').value = '';
+    document.getElementById('addFacultyPass').value = 'faculty123';
+    document.getElementById('addFacultyDept').value = '';
+    const sel = document.getElementById('addFacultyPrinter');
+    sel.innerHTML = '<option value="">— Select printer —</option>';
+    allPrinters.forEach(p => sel.innerHTML += `<option value="${p._id}">🖨️ ${p.name}</option>`);
+    document.getElementById('addFacultyModal').classList.add('active');
+    setTimeout(() => document.getElementById('addFacultyName').focus(), 100);
+}
+
+async function createFaculty() {
+    const name     = document.getElementById('addFacultyName').value.trim();
+    const email    = document.getElementById('addFacultyEmail').value.trim();
+    const password = document.getElementById('addFacultyPass').value;
+    const dept     = document.getElementById('addFacultyDept').value.trim();
+    const printer  = document.getElementById('addFacultyPrinter').value;
+    if (!name || !email || password.length < 6) {
+        showAlert('Fill all required fields (password min 6 chars)','error'); return;
+    }
+    try {
+        const r = await fetch(API+'/admin/faculty', {
+            method:'POST', headers:authHeaders(),
+            body: JSON.stringify({ name, email, password, department:dept, printerLocationId:printer })
+        });
+        const d = await r.json();
+        if (r.ok) {
+            showAlert(`Faculty "${name}" added`,'success');
+            document.getElementById('addFacultyModal').classList.remove('active');
+            await loadFaculty();
+        } else { showAlert(d.error||'Failed','error'); }
+    } catch { showAlert('Failed','error'); }
+}
+
+// Patch showAdminDashboard to also load printers and faculty
+const _origShowAdmin = showAdminDashboard;
+window.showAdminDashboard = async function() {
+    await _origShowAdmin();
+    await loadPrinters();
+    await loadFaculty();
+};

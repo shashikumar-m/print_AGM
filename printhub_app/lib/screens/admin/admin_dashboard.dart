@@ -12,6 +12,7 @@ import 'print_jobs_tab.dart';
 import 'settings_tab.dart';
 import 'sections_tab.dart';
 import 'faculty_tab.dart';
+import 'printers_tab.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -71,6 +72,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       StudentsTab(students: _students, sections: _sections, token: _token ?? '', onRefresh: _loadData),
       PrintJobsTab(jobs: _printJobs, onRefresh: _loadData),
       FacultyTab(faculty: _faculty, token: _token ?? '', onRefresh: _loadData),
+      PrintersTab(token: _token ?? '', sections: _sections, students: _students, faculty: _faculty, onRefresh: _loadData),
       SectionsTab(sections: _sections, token: _token ?? '', onRefresh: _loadData),
       SettingsTab(token: _token ?? '', settings: _settings, onUpdated: _loadData),
     ];
@@ -133,6 +135,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             icon: Icon(Icons.school_outlined),
             selectedIcon: Icon(Icons.school_rounded, color: AppTheme.primary),
             label: 'Faculty',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.print_outlined),
+            selectedIcon: Icon(Icons.print_rounded, color: AppTheme.primary),
+            label: 'Printers',
           ),
           NavigationDestination(
             icon: Icon(Icons.category_outlined),

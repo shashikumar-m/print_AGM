@@ -63,6 +63,26 @@ class ApiService {
     return _handle(r);
   }
 
+  static Future<Map<String, dynamic>> assignPrinterToSection(
+      String token, String sectionId, String printerId) async {
+    final r = await http.post(
+        Uri.parse('$baseUrl/api/admin/sections/$sectionId/assign-printer'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'printerId': printerId}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> assignPrinterToUser(
+      String token, String userId, String printerId) async {
+    final r = await http.post(
+        Uri.parse('$baseUrl/api/admin/users/$userId/assign-printer'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'printerId': printerId}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
   // ── SECTIONS ──────────────────────────────────────────────────────────────
   static Future<List<SectionModel>> getSections() async {
     final r = await http.get(Uri.parse('$baseUrl/api/sections'))
