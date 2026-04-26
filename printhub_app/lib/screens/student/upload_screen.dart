@@ -56,16 +56,6 @@ class _UploadScreenState extends State<UploadScreen> {
     final locs = await ApiService.getPrinterLocations();
     if (mounted) setState(() => _locations = locs);
   }
-  String _colorMode    = 'bw';
-  bool   _duplex       = false;
-  int    _pagesPerSheet = 1;
-  bool   _usePageRange = false;
-  final  _pageFromCtrl = TextEditingController();
-  final  _pageToCtrl   = TextEditingController();
-
-  bool   _uploading    = false;
-  double _progress     = 0;
-  String _statusText   = '';
 
   @override
   void dispose() {

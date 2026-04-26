@@ -20,6 +20,15 @@ class ApiService {
     return _handle(r);
   }
 
+  static Future<Map<String, dynamic>> register(
+      String name, String email, String password, String section) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'name': name, 'email': email, 'password': password, 'section': section}))
+        .timeout(const Duration(seconds: 30));
+    return _handle(r);
+  }
+
   // ── PRINTER LOCATIONS ─────────────────────────────────────────────────────
   static Future<List<PrinterLocationModel>> getPrinterLocations() async {
     final r = await http.get(Uri.parse('$baseUrl/api/printer-locations'))
