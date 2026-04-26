@@ -68,8 +68,9 @@ class _LoginScreenState extends State<LoginScreen>
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              user.isAdmin ? const AdminDashboard() : const StudentDashboard(),
+          builder: (_) => user.isAdmin
+              ? const AdminDashboard()
+              : StudentDashboard(isFaculty: user.isFaculty),
         ),
       );
     } on TimeoutException {

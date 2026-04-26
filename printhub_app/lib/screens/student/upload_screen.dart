@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../models/settings_model.dart';
+import '../../models/printer_location_model.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loading_button.dart';
@@ -11,12 +12,14 @@ class UploadScreen extends StatefulWidget {
   final String token;
   final double wallet;
   final SettingsModel settings;
+  final bool isFaculty;
 
   const UploadScreen({
     super.key,
     required this.token,
     required this.wallet,
     required this.settings,
+    this.isFaculty = false,
   });
 
   @override
@@ -28,6 +31,31 @@ class _UploadScreenState extends State<UploadScreen> {
   String? _fileName;
 
   // Print options
+  String _colorMode     = 'bw';
+  bool   _duplex        = false;
+  int    _pagesPerSheet = 1;
+  bool   _usePageRange  = false;
+  final  _pageFromCtrl  = TextEditingController();
+  final  _pageToCtrl    = TextEditingController();
+
+  // Printer location (faculty only)
+  List<PrinterLocationModel> _locations = [];
+  String? _selectedLocationId;
+
+  bool   _uploading = false;
+  double _progress  = 0;
+  String _statusText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isFaculty) _loadLocations();
+  }
+
+  Future<void> _loadLocations() async {
+    final locs = await ApiService.getPrinterLocations();
+    if (mounted) setState(() => _locations = locs);
+  }
   String _colorMode    = 'bw';
   bool   _duplex       = false;
   int    _pagesPerSheet = 1;
@@ -80,11 +108,12 @@ class _UploadScreenState extends State<UploadScreen> {
 
     try {
       final opts = <String, String>{
-        'duplex':        _duplex.toString(),
-        'colorMode':     _colorMode,
-        'pagesPerSheet': _pagesPerSheet.toString(),
-        'pageFrom':      _usePageRange ? (_pageFromCtrl.text) : '0',
-        'pageTo':        _usePageRange ? (_pageToCtrl.text)   : '0',
+        'duplex':            _duplex.toString(),
+        'colorMode':         _colorMode,
+        'pagesPerSheet':     _pagesPerSheet.toString(),
+        'pageFrom':          _usePageRange ? (_pageFromCtrl.text) : '0',
+        'pageTo':            _usePageRange ? (_pageToCtrl.text)   : '0',
+        'printerLocationId': _selectedLocationId ?? '',
       };
 
       final data = await ApiService.uploadPDF(widget.token, _file!, opts);
@@ -210,7 +239,17 @@ class _UploadScreenState extends State<UploadScreen> {
                 _sectionLabel('2. Print Options'),
                 const SizedBox(height: 8),
                 _optionsCard(s),
-                const SizedBox(height: 28),
+                const SizedBox(height: 16),
+
+                // ── Printer location (faculty only) ────────────────────────
+                if (widget.isFaculty) ...[
+                  _sectionLabel('3. Select Printer'),
+                  const SizedBox(height: 8),
+                  _printerLocationPicker(),
+                  const SizedBox(height: 16),
+                ],
+
+                const SizedBox(height: 12),
 
                 // ── Submit ─────────────────────────────────────────────────
                 LoadingButton(
@@ -525,4 +564,93 @@ class _UploadScreenState extends State<UploadScreen> {
       ),
     ),
   );
+
+  Widget _printerLocationPicker() {
+    if (_locations.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.warning.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+        ),
+        child: const Row(children: [
+          Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 18),
+          SizedBox(width: 8),
+          Text('No printers configured. Contact admin.',
+              style: TextStyle(color: AppTheme.warning, fontSize: 13)),
+        ]),
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        children: _locations.map((loc) {
+          final selected = _selectedLocationId == loc.id;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedLocationId = loc.id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: selected ? AppTheme.primary.withValues(alpha: 0.06) : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+                border: selected ? Border.all(color: AppTheme.primary, width: 1.5) : null,
+              ),
+              child: Row(children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: (loc.isOnline ? AppTheme.success : AppTheme.textSecondary)
+                        .withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.print_rounded,
+                      color: loc.isOnline ? AppTheme.success : AppTheme.textSecondary,
+                      size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(loc.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: selected ? AppTheme.primary : AppTheme.textPrimary,
+                        )),
+                    if (loc.description.isNotEmpty)
+                      Text(loc.description,
+                          style: const TextStyle(
+                              fontSize: 12, color: AppTheme.textSecondary)),
+                    Row(children: [
+                      Container(
+                        width: 6, height: 6,
+                        decoration: BoxDecoration(
+                          color: loc.isOnline ? AppTheme.success : Colors.grey,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(loc.isOnline ? 'Online' : 'Offline',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: loc.isOnline ? AppTheme.success : Colors.grey,
+                          )),
+                    ]),
+                  ],
+                )),
+                if (selected)
+                  const Icon(Icons.check_circle_rounded,
+                      color: AppTheme.primary, size: 20),
+              ]),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 }

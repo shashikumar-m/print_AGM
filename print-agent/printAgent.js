@@ -119,6 +119,7 @@ console.log('║       PrintHub Print Agent               ║');
 console.log('╚══════════════════════════════════════════╝');
 console.log(`📡 Server  : ${SERVER_URL}`);
 console.log(`🖨️  Printer : ${PRINTER_NAME || '(Windows default)'}`);
+console.log(`🔑 Key     : ${AGENT_KEY.substring(0,12)}...`);
 console.log(`🔧 Sumatra : ${SUMATRA || 'NOT FOUND — using PowerShell fallback'}`);
 console.log(`⏱️  Polling : every ${POLL_INTERVAL_MS / 1000}s`);
 console.log('');
@@ -127,6 +128,16 @@ if (!SUMATRA) {
     console.log('⚠️  TIP: Install SumatraPDF for best results:');
     console.log('   https://www.sumatrapdfreader.org/download-free-pdf-viewer');
     console.log('');
+}
+
+// Send heartbeat to server so admin can see this location is online
+async function sendHeartbeat() {
+    try {
+        const r = await axios.post(`${SERVER_URL}/api/agent/heartbeat`, {}, { headers, timeout: 8000 });
+        console.log(`💓 Online as: ${r.data.locationName}`);
+    } catch (err) {
+        console.warn('⚠️  Heartbeat failed:', err.message);
+    }
 }
 
 // List available printers
@@ -138,6 +149,10 @@ if (printers.length) {
     });
     console.log('');
 }
+
+// Send heartbeat immediately and every 30 seconds
+sendHeartbeat();
+setInterval(sendHeartbeat, 30000);
 
 // ── Poll loop ─────────────────────────────────────────────────
 async function pollAndPrint() {

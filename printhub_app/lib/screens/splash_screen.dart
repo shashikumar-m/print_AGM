@@ -71,8 +71,9 @@ class _SplashScreenState extends State<SplashScreen>
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) =>
-            user.isAdmin ? const AdminDashboard() : const StudentDashboard(),
+        pageBuilder: (_, __, ___) => user.isAdmin
+            ? const AdminDashboard()
+            : StudentDashboard(isFaculty: user.isFaculty),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
         transitionDuration: const Duration(milliseconds: 500),

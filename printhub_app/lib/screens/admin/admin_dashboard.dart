@@ -11,6 +11,7 @@ import 'students_tab.dart';
 import 'print_jobs_tab.dart';
 import 'settings_tab.dart';
 import 'sections_tab.dart';
+import 'faculty_tab.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -24,6 +25,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   UserModel? _user;
   String? _token;
   List<UserModel>     _students  = [];
+  List<UserModel>     _faculty   = [];
   List<PrintJobModel> _printJobs = [];
   List<SectionModel>  _sections  = [];
   SettingsModel       _settings  = const SettingsModel();
@@ -42,12 +44,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ApiService.getPrintJobs(_token!),
         ApiService.getSettings(),
         ApiService.getSections(),
+        ApiService.getFaculty(_token!),
       ]);
       setState(() {
         _students  = results[0] as List<UserModel>;
         _printJobs = results[1] as List<PrintJobModel>;
         _settings  = results[2] as SettingsModel;
         _sections  = results[3] as List<SectionModel>;
+        _faculty   = results[4] as List<UserModel>;
         _loading   = false;
       });
     } catch (_) {
@@ -66,6 +70,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final tabs = [
       StudentsTab(students: _students, sections: _sections, token: _token ?? '', onRefresh: _loadData),
       PrintJobsTab(jobs: _printJobs, onRefresh: _loadData),
+      FacultyTab(faculty: _faculty, token: _token ?? '', onRefresh: _loadData),
       SectionsTab(sections: _sections, token: _token ?? '', onRefresh: _loadData),
       SettingsTab(token: _token ?? '', settings: _settings, onUpdated: _loadData),
     ];
@@ -100,7 +105,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text(_user?.name ?? 'Admin',
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
-                      Text('${_students.length} students • ${_printJobs.length} jobs • ${_sections.length} sections',
+                      Text('${_students.length} students • ${_printJobs.length} jobs • ${_faculty.length} faculty • ${_sections.length} sections',
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12)),
                     ]),
                   ]),
@@ -123,6 +128,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             icon: Icon(Icons.print_outlined),
             selectedIcon: Icon(Icons.print_rounded, color: AppTheme.primary),
             label: 'Jobs',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.school_outlined),
+            selectedIcon: Icon(Icons.school_rounded, color: AppTheme.primary),
+            label: 'Faculty',
           ),
           NavigationDestination(
             icon: Icon(Icons.category_outlined),

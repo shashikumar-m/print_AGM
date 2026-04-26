@@ -6,6 +6,7 @@ import '../models/user_model.dart';
 import '../models/print_job_model.dart';
 import '../models/settings_model.dart';
 import '../models/section_model.dart';
+import '../models/printer_location_model.dart';
 
 class ApiService {
   static const String baseUrl = 'https://print-agm.onrender.com';
@@ -19,12 +20,37 @@ class ApiService {
     return _handle(r);
   }
 
-  static Future<Map<String, dynamic>> register(
-      String name, String email, String password, String section) async {
-    final r = await http.post(Uri.parse('$baseUrl/api/auth/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name, 'email': email, 'password': password, 'section': section}))
-        .timeout(const Duration(seconds: 30));
+  // ── PRINTER LOCATIONS ─────────────────────────────────────────────────────
+  static Future<List<PrinterLocationModel>> getPrinterLocations() async {
+    final r = await http.get(Uri.parse('$baseUrl/api/printer-locations'))
+        .timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => PrinterLocationModel.fromJson(e)).toList();
+  }
+
+  static Future<List<PrinterLocationModel>> getAdminPrinterLocations(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/admin/printer-locations'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => PrinterLocationModel.fromJson(e)).toList();
+  }
+
+  static Future<Map<String, dynamic>> createPrinterLocation(
+      String token, String name, String description) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/admin/printer-locations'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'name': name, 'description': description}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> deletePrinterLocation(
+      String token, String id) async {
+    final r = await http.delete(
+        Uri.parse('$baseUrl/api/admin/printer-locations/$id'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
@@ -47,19 +73,11 @@ class ApiService {
 
   static Future<Map<String, dynamic>> deleteSection(String token, String id) async {
     final r = await http.delete(Uri.parse('$baseUrl/api/admin/sections/$id'),
-        headers: _auth(token))
-        .timeout(const Duration(seconds: 15));
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
-  // ── STUDENT ───────────────────────────────────────────────────────────────
-  static Future<Map<String, dynamic>> getWallet(String token) async {
-    final r = await http.get(Uri.parse('$baseUrl/api/student/wallet'),
-        headers: _auth(token))
-        .timeout(const Duration(seconds: 15));
-    return _handle(r);
-  }
-
+  // ── UPLOAD ────────────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> uploadPDF(
       String token, File file, Map<String, String> printOptions) async {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/upload'));
@@ -72,11 +90,17 @@ class ApiService {
     return _handle(r);
   }
 
+  // ── STUDENT ───────────────────────────────────────────────────────────────
+  static Future<Map<String, dynamic>> getWallet(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/wallet'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
   // ── ADMIN ─────────────────────────────────────────────────────────────────
   static Future<List<UserModel>> getStudents(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/admin/students'),
-        headers: _auth(token))
-        .timeout(const Duration(seconds: 15));
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
     if (r.statusCode != 200) throw Exception('Failed to load students');
     final List list = jsonDecode(r.body);
     return list.map((e) => UserModel.fromJson(e)).toList();
@@ -86,15 +110,29 @@ class ApiService {
       String token, Map<String, dynamic> data) async {
     final r = await http.post(Uri.parse('$baseUrl/api/admin/students'),
         headers: {'Content-Type': 'application/json', ..._auth(token)},
-        body: jsonEncode(data))
-        .timeout(const Duration(seconds: 15));
+        body: jsonEncode(data)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  static Future<List<UserModel>> getFaculty(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/admin/faculty'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) throw Exception('Failed to load faculty');
+    final List list = jsonDecode(r.body);
+    return list.map((e) => UserModel.fromJson(e)).toList();
+  }
+
+  static Future<Map<String, dynamic>> createFaculty(
+      String token, Map<String, dynamic> data) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/admin/faculty'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode(data)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
   static Future<List<PrintJobModel>> getPrintJobs(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/admin/print-jobs'),
-        headers: _auth(token))
-        .timeout(const Duration(seconds: 15));
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
     if (r.statusCode != 200) throw Exception('Failed to load jobs');
     final List list = jsonDecode(r.body);
     return list.map((e) => PrintJobModel.fromJson(e)).toList();
@@ -121,8 +159,7 @@ class ApiService {
       String token, Map<String, dynamic> settings) async {
     final r = await http.post(Uri.parse('$baseUrl/api/admin/settings'),
         headers: {'Content-Type': 'application/json', ..._auth(token)},
-        body: jsonEncode(settings))
-        .timeout(const Duration(seconds: 15));
+        body: jsonEncode(settings)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 

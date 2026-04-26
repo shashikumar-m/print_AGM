@@ -8,7 +8,8 @@ import '../auth/login_screen.dart';
 import 'upload_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
-  const StudentDashboard({super.key});
+  final bool isFaculty;
+  const StudentDashboard({super.key, this.isFaculty = false});
 
   @override
   State<StudentDashboard> createState() => _StudentDashboardState();
@@ -123,7 +124,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         children: [
-                          _WalletCard(wallet: _wallet, settings: _settings),
+                          _WalletCard(wallet: _wallet, settings: _settings, isFaculty: widget.isFaculty),
                           const SizedBox(height: 20),
                           const Align(
                             alignment: Alignment.centerLeft,
@@ -134,7 +135,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
                           _ActionCard(
                             icon: Icons.upload_file_rounded,
                             title: 'Upload & Print',
-                            subtitle: 'Select a PDF with custom print options',
+                            subtitle: widget.isFaculty
+                                ? 'Free printing — choose your printer'
+                                : 'Select a PDF with custom print options',
                             color: AppTheme.primary,
                             onTap: () async {
                               final result = await Navigator.push(context,
@@ -142,6 +145,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                                     token: _token!,
                                     wallet: _wallet,
                                     settings: _settings,
+                                    isFaculty: widget.isFaculty,
                                   )));
                               if (result == true) _loadData();
                             },
@@ -162,7 +166,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
 class _WalletCard extends StatelessWidget {
   final double wallet;
   final SettingsModel settings;
-  const _WalletCard({required this.wallet, required this.settings});
+  final bool isFaculty;
+  const _WalletCard({required this.wallet, required this.settings, this.isFaculty = false});
 
   @override
   Widget build(BuildContext context) {
@@ -191,14 +196,16 @@ class _WalletCard extends StatelessWidget {
             const Text('Wallet Balance', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
           ]),
           const SizedBox(height: 16),
-          Text('₹${wallet.toStringAsFixed(0)}',
-              style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w800)),
+          Text(
+            isFaculty ? '∞  Free' : '₹${wallet.toStringAsFixed(0)}',
+            style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
-            child: Text('₹${settings.pricePerPage} per page',
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+            child: Text(
+              isFaculty ? 'Faculty — unlimited free printing' : '₹${settings.pricePerPage} per page',
+              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
           ),
         ],
       ),
