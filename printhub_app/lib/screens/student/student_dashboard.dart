@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
+import '../../models/settings_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
@@ -17,7 +18,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
   UserModel? _user;
   String? _token;
   double _wallet = 0;
-  double _pricePerPage = 1;
+  SettingsModel _settings = const SettingsModel();
   bool _loading = true;
 
   @override
@@ -29,31 +30,26 @@ class _StudentDashboardState extends State<StudentDashboard> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     _token = await AuthService.getToken();
-    _user = await AuthService.getUser();
-
+    _user  = await AuthService.getUser();
     try {
-      final walletData = await ApiService.getWallet(_token!);
-      final settings = await ApiService.getSettings();
+      final results = await Future.wait([
+        ApiService.getWallet(_token!),
+        ApiService.getSettings(),
+      ]);
       setState(() {
-        _wallet = (walletData['wallet'] ?? 0).toDouble();
-        _pricePerPage = (settings['pricePerPage'] ?? 1).toDouble();
-        _loading = false;
+        _wallet   = ((results[0] as Map)['wallet'] ?? 0).toDouble();
+        _settings = results[1] as SettingsModel;
+        _loading  = false;
       });
     } catch (_) {
-      setState(() {
-        _wallet = _user?.wallet ?? 0;
-        _loading = false;
-      });
+      setState(() { _wallet = _user?.wallet ?? 0; _loading = false; });
     }
   }
 
   Future<void> _logout() async {
     await AuthService.clearSession();
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
   }
 
   @override
@@ -65,7 +61,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
         color: AppTheme.primary,
         child: CustomScrollView(
           slivers: [
-            // App Bar
             SliverAppBar(
               expandedHeight: 180,
               pinned: true,
@@ -74,7 +69,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 IconButton(
                   icon: const Icon(Icons.logout_rounded, color: Colors.white),
                   onPressed: _logout,
-                  tooltip: 'Logout',
                 ),
               ],
               flexibleSpace: FlexibleSpaceBar(
@@ -93,22 +87,25 @@ class _StudentDashboardState extends State<StudentDashboard> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text(
-                            'Hello, ${_user?.name ?? 'Student'} 👋',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                          Text('Hello, ${_user?.name ?? 'Student'} 👋',
+                              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
                           const SizedBox(height: 4),
-                          Text(
-                            _user?.email ?? '',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 13,
-                            ),
-                          ),
+                          Row(children: [
+                            Text(_user?.email ?? '',
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13)),
+                            if ((_user?.section ?? '').isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(_user!.section,
+                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                              ),
+                            ],
+                          ]),
                         ],
                       ),
                     ),
@@ -121,59 +118,36 @@ class _StudentDashboardState extends State<StudentDashboard> {
               child: _loading
                   ? const Padding(
                       padding: EdgeInsets.all(40),
-                      child: Center(
-                        child: CircularProgressIndicator(color: AppTheme.primary),
-                      ),
-                    )
+                      child: Center(child: CircularProgressIndicator(color: AppTheme.primary)))
                   : Padding(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         children: [
-                          // Wallet Card
-                          _WalletCard(
-                            wallet: _wallet,
-                            pricePerPage: _pricePerPage,
-                          ),
+                          _WalletCard(wallet: _wallet, settings: _settings),
                           const SizedBox(height: 20),
-
-                          // Quick Actions
                           const Align(
                             alignment: Alignment.centerLeft,
-                            child: Text(
-                              'Quick Actions',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
+                            child: Text('Quick Actions',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                           ),
                           const SizedBox(height: 12),
-
-                          // Print Button
                           _ActionCard(
                             icon: Icons.upload_file_rounded,
                             title: 'Upload & Print',
-                            subtitle: 'Select a PDF to print',
+                            subtitle: 'Select a PDF with custom print options',
                             color: AppTheme.primary,
                             onTap: () async {
-                              final result = await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => UploadScreen(
+                              final result = await Navigator.push(context,
+                                  MaterialPageRoute(builder: (_) => UploadScreen(
                                     token: _token!,
                                     wallet: _wallet,
-                                    pricePerPage: _pricePerPage,
-                                  ),
-                                ),
-                              );
+                                    settings: _settings,
+                                  )));
                               if (result == true) _loadData();
                             },
                           ),
                           const SizedBox(height: 12),
-
-                          // Info Card
-                          _InfoCard(pricePerPage: _pricePerPage),
+                          _PermissionsCard(settings: _settings),
                         ],
                       ),
                     ),
@@ -187,9 +161,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
 class _WalletCard extends StatelessWidget {
   final double wallet;
-  final double pricePerPage;
-
-  const _WalletCard({required this.wallet, required this.pricePerPage});
+  final SettingsModel settings;
+  const _WalletCard({required this.wallet, required this.settings});
 
   @override
   Widget build(BuildContext context) {
@@ -203,63 +176,29 @@ class _WalletCard extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.accent.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: AppTheme.accent.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.account_balance_wallet_rounded,
-                    color: Colors.white, size: 22),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Wallet Balance',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '₹${wallet.toStringAsFixed(0)}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 40,
-              fontWeight: FontWeight.w800,
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 22),
             ),
-          ),
+            const SizedBox(width: 10),
+            const Text('Wallet Balance', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
+          ]),
+          const SizedBox(height: 16),
+          Text('₹${wallet.toStringAsFixed(0)}',
+              style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '₹$pricePerPage per page',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
+            child: Text('₹${settings.pricePerPage} per page',
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
           ),
         ],
       ),
@@ -269,18 +208,10 @@ class _WalletCard extends StatelessWidget {
 
 class _ActionCard extends StatelessWidget {
   final IconData icon;
-  final String title;
-  final String subtitle;
+  final String title, subtitle;
   final Color color;
   final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
+  const _ActionCard({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -292,51 +223,25 @@ class _ActionCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.divider),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: Row(
           children: [
             Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
-              ),
+              width: 52, height: 52,
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)),
               child: Icon(icon, color: color, size: 26),
             ),
             const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios_rounded,
-                size: 16, color: color.withOpacity(0.6)),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+              ],
+            )),
+            Icon(Icons.arrow_forward_ios_rounded, size: 16, color: color.withValues(alpha: 0.6)),
           ],
         ),
       ),
@@ -344,46 +249,53 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  final double pricePerPage;
-  const _InfoCard({required this.pricePerPage});
+class _PermissionsCard extends StatelessWidget {
+  final SettingsModel settings;
+  const _PermissionsCard({required this.settings});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withOpacity(0.05),
+        color: AppTheme.primary.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.primary.withOpacity(0.15)),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.15)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _infoRow(Icons.info_outline, 'Supported format', 'PDF files only'),
-          const Divider(height: 16, color: AppTheme.divider),
-          _infoRow(Icons.payments_outlined, 'Print cost', '₹$pricePerPage per page'),
-          const Divider(height: 16, color: AppTheme.divider),
-          _infoRow(Icons.storage_outlined, 'Max file size', '50 MB'),
+          const Text('Available Print Options',
+              style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primary, fontSize: 13)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8, runSpacing: 6,
+            children: [
+              _tag('B&W', true),
+              if (settings.allowColor)      _tag('Color', true),
+              if (settings.allowDuplex)     _tag('Duplex', true),
+              if (settings.allowPageRange)  _tag('Page Range', true),
+              if (settings.allowPagesPerSheet) _tag('Multi-up', true),
+              if (settings.maxPagesPerJob > 0) _tag('Max ${settings.maxPagesPerJob}p', false),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: AppTheme.primary),
-        const SizedBox(width: 10),
-        Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary, fontSize: 13)),
-        const Spacer(),
-        Text(value,
-            style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
+  Widget _tag(String label, bool allowed) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: allowed ? AppTheme.success.withValues(alpha: 0.1) : AppTheme.warning.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(allowed ? Icons.check_circle_outline : Icons.info_outline,
+          size: 12, color: allowed ? AppTheme.success : AppTheme.warning),
+      const SizedBox(width: 4),
+      Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+          color: allowed ? AppTheme.success : AppTheme.warning)),
+    ]),
+  );
 }

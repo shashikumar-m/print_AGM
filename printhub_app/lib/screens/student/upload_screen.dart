@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../models/settings_model.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loading_button.dart';
@@ -8,13 +10,13 @@ import '../../widgets/loading_button.dart';
 class UploadScreen extends StatefulWidget {
   final String token;
   final double wallet;
-  final double pricePerPage;
+  final SettingsModel settings;
 
   const UploadScreen({
     super.key,
     required this.token,
     required this.wallet,
-    required this.pricePerPage,
+    required this.settings,
   });
 
   @override
@@ -22,100 +24,105 @@ class UploadScreen extends StatefulWidget {
 }
 
 class _UploadScreenState extends State<UploadScreen> {
-  File? _selectedFile;
+  File? _file;
   String? _fileName;
-  bool _duplex = false;
-  bool _uploading = false;
-  double _uploadProgress = 0;
-  String _statusText = '';
+
+  // Print options
+  String _colorMode    = 'bw';
+  bool   _duplex       = false;
+  int    _pagesPerSheet = 1;
+  bool   _usePageRange = false;
+  final  _pageFromCtrl = TextEditingController();
+  final  _pageToCtrl   = TextEditingController();
+
+  bool   _uploading    = false;
+  double _progress     = 0;
+  String _statusText   = '';
+
+  @override
+  void dispose() {
+    _pageFromCtrl.dispose();
+    _pageToCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
-    if (result != null && result.files.single.path != null) {
-      final file = File(result.files.single.path!);
-      final size = await file.length();
-      if (size > 50 * 1024 * 1024) {
-        _showSnack('File too large (max 50MB)', isError: true);
-        return;
-      }
-      setState(() {
-        _selectedFile = file;
-        _fileName = result.files.single.name;
-      });
+    if (result == null || result.files.single.path == null) return;
+    final file = File(result.files.single.path!);
+    if (await file.length() > 50 * 1024 * 1024) {
+      _snack('File too large (max 50MB)', error: true);
+      return;
     }
+    setState(() {
+      _file     = file;
+      _fileName = result.files.single.name;
+    });
   }
 
   Future<void> _submit() async {
-    if (_selectedFile == null) {
-      _showSnack('Please select a PDF file', isError: true);
-      return;
-    }
+    if (_file == null) { _snack('Please select a PDF', error: true); return; }
 
-    setState(() {
-      _uploading = true;
-      _uploadProgress = 0;
-      _statusText = 'Uploading PDF...';
-    });
-
-    // Simulate progress
-    _simulateProgress();
-
-    try {
-      final data = await ApiService.uploadPDF(
-        widget.token,
-        _selectedFile!,
-        _duplex,
-      );
-
-      setState(() {
-        _uploadProgress = 1.0;
-        _statusText = 'Print job submitted!';
-      });
-
-      await Future.delayed(const Duration(milliseconds: 600));
-
-      if (data['error'] != null) {
-        setState(() => _uploading = false);
-        _showSnack(data['error'], isError: true);
+    if (_usePageRange) {
+      final from = int.tryParse(_pageFromCtrl.text) ?? 0;
+      final to   = int.tryParse(_pageToCtrl.text)   ?? 0;
+      if (from <= 0 || to < from) {
+        _snack('Enter a valid page range (e.g. 1 to 5)', error: true);
         return;
       }
+    }
+
+    setState(() { _uploading = true; _progress = 0; _statusText = 'Uploading...'; });
+    _animateProgress();
+
+    try {
+      final opts = <String, String>{
+        'duplex':        _duplex.toString(),
+        'colorMode':     _colorMode,
+        'pagesPerSheet': _pagesPerSheet.toString(),
+        'pageFrom':      _usePageRange ? (_pageFromCtrl.text) : '0',
+        'pageTo':        _usePageRange ? (_pageToCtrl.text)   : '0',
+      };
+
+      final data = await ApiService.uploadPDF(widget.token, _file!, opts);
+
+      setState(() { _progress = 1.0; _statusText = 'Done!'; });
+      await Future.delayed(const Duration(milliseconds: 400));
 
       if (!mounted) return;
       setState(() => _uploading = false);
 
-      _showSuccessDialog(
-        pages: data['pages'] ?? 0,
-        cost: (data['cost'] ?? 0).toDouble(),
-        remaining: (data['remainingWallet'] ?? 0).toDouble(),
+      if (data['error'] != null) { _snack(data['error'], error: true); return; }
+
+      _showSuccess(
+        pages:     data['pages']           ?? 0,
+        cost:      (data['cost']           ?? 0).toDouble(),
+        remaining: (data['remainingWallet']?? 0).toDouble(),
       );
     } catch (e) {
       setState(() => _uploading = false);
-      _showSnack('Upload failed. Check your connection.', isError: true);
+      _snack('Upload failed: ${e.toString()}', error: true);
     }
   }
 
-  void _simulateProgress() {
+  void _animateProgress() {
     Future.doWhile(() async {
       await Future.delayed(const Duration(milliseconds: 200));
       if (!mounted || !_uploading) return false;
       setState(() {
-        if (_uploadProgress < 0.85) {
-          _uploadProgress += 0.05;
-          _statusText = 'Uploading... ${(_uploadProgress * 100).toInt()}%';
+        if (_progress < 0.85) {
+          _progress += 0.04;
+          _statusText = 'Uploading... ${(_progress * 100).toInt()}%';
         }
       });
-      return _uploading && _uploadProgress < 0.85;
+      return _uploading && _progress < 0.85;
     });
   }
 
-  void _showSuccessDialog({
-    required int pages,
-    required double cost,
-    required double remaining,
-  }) {
+  void _showSuccess({required int pages, required double cost, required double remaining}) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -125,38 +132,27 @@ class _UploadScreenState extends State<UploadScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 72,
-              height: 72,
+              width: 72, height: 72,
               decoration: BoxDecoration(
-                color: AppTheme.success.withOpacity(0.1),
+                color: AppTheme.success.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.check_circle_rounded,
-                  color: AppTheme.success, size: 40),
+              child: const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 40),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Print Job Submitted!',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textPrimary,
-              ),
-            ),
+            const Text('Print Job Submitted!',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
             const SizedBox(height: 16),
-            _resultRow('Pages', '$pages'),
+            _row('Pages printed', '$pages'),
             const Divider(height: 16),
-            _resultRow('Cost', '₹${cost.toStringAsFixed(0)}'),
+            _row('Cost', '₹${cost.toStringAsFixed(0)}'),
             const Divider(height: 16),
-            _resultRow('Remaining Balance', '₹${remaining.toStringAsFixed(0)}'),
+            _row('Remaining balance', '₹${remaining.toStringAsFixed(0)}'),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context, true);
-                },
+                onPressed: () { Navigator.pop(context); Navigator.pop(context, true); },
                 child: const Text('Done'),
               ),
             ),
@@ -166,34 +162,25 @@ class _UploadScreenState extends State<UploadScreen> {
     );
   }
 
-  Widget _resultRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary, fontSize: 14)),
-        Text(value,
-            style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
+  Widget _row(String label, String value) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
+      Text(value,  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
+    ],
+  );
 
-  void _showSnack(String msg, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? AppTheme.error : AppTheme.success,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  void _snack(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: error ? AppTheme.error : AppTheme.success,
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = widget.settings;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Upload & Print'),
@@ -209,219 +196,61 @@ class _UploadScreenState extends State<UploadScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Wallet info
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.accent.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppTheme.accent.withOpacity(0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.account_balance_wallet_rounded,
-                          color: AppTheme.accent),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Available Balance',
-                              style: TextStyle(
-                                  color: AppTheme.textSecondary, fontSize: 12)),
-                          Text(
-                            '₹${widget.wallet.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.accent.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '₹${widget.pricePerPage}/page',
-                          style: const TextStyle(
-                            color: AppTheme.accent,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                const Text(
-                  'Select PDF File',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // File picker area
-                GestureDetector(
-                  onTap: _uploading ? null : _pickFile,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(28),
-                    decoration: BoxDecoration(
-                      color: _selectedFile != null
-                          ? AppTheme.primary.withOpacity(0.05)
-                          : Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _selectedFile != null
-                            ? AppTheme.primary
-                            : AppTheme.divider,
-                        width: _selectedFile != null ? 2 : 1,
-                        style: _selectedFile != null
-                            ? BorderStyle.solid
-                            : BorderStyle.solid,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Icon(
-                          _selectedFile != null
-                              ? Icons.picture_as_pdf_rounded
-                              : Icons.cloud_upload_outlined,
-                          size: 48,
-                          color: _selectedFile != null
-                              ? AppTheme.primary
-                              : AppTheme.textSecondary,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _selectedFile != null
-                              ? _fileName ?? 'File selected'
-                              : 'Tap to select PDF',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: _selectedFile != null
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: _selectedFile != null
-                                ? AppTheme.primary
-                                : AppTheme.textSecondary,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        if (_selectedFile == null) ...[
-                          const SizedBox(height: 4),
-                          const Text(
-                            'PDF files only • Max 50MB',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
+                // ── Wallet banner ──────────────────────────────────────────
+                _walletBanner(),
                 const SizedBox(height: 20),
 
-                // Duplex option
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppTheme.divider),
-                  ),
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'Duplex Printing',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Print on both sides of the paper',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 12),
-                    ),
-                    value: _duplex,
-                    activeThumbColor: AppTheme.primary,
-                    activeTrackColor: AppTheme.primary.withValues(alpha: 0.4),
-                    onChanged: _uploading
-                        ? null
-                        : (v) => setState(() => _duplex = v),
-                  ),
-                ),
-                const SizedBox(height: 32),
+                // ── File picker ────────────────────────────────────────────
+                _sectionLabel('1. Select PDF File'),
+                const SizedBox(height: 8),
+                _filePicker(),
+                const SizedBox(height: 20),
 
+                // ── Print options ──────────────────────────────────────────
+                _sectionLabel('2. Print Options'),
+                const SizedBox(height: 8),
+                _optionsCard(s),
+                const SizedBox(height: 28),
+
+                // ── Submit ─────────────────────────────────────────────────
                 LoadingButton(
                   label: 'Submit for Printing',
                   loading: _uploading,
                   onPressed: _submit,
                   icon: Icons.print_rounded,
                 ),
+                const SizedBox(height: 20),
               ],
             ),
           ),
 
-          // Upload overlay
+          // ── Progress overlay ───────────────────────────────────────────
           if (_uploading)
             Container(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black54,
               child: Center(
                 child: Container(
                   margin: const EdgeInsets.all(40),
                   padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.print_rounded,
-                          size: 48, color: AppTheme.primary),
+                      const Icon(Icons.print_rounded, size: 48, color: AppTheme.primary),
                       const SizedBox(height: 16),
-                      const Text(
-                        'Processing Print Job',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textPrimary,
-                        ),
-                      ),
+                      const Text('Processing Print Job',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                       const SizedBox(height: 20),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: LinearProgressIndicator(
-                          value: _uploadProgress,
-                          minHeight: 8,
+                          value: _progress, minHeight: 8,
                           backgroundColor: AppTheme.divider,
                           valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        _statusText,
-                        style: const TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
+                      Text(_statusText, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
                     ],
                   ),
                 ),
@@ -431,4 +260,269 @@ class _UploadScreenState extends State<UploadScreen> {
       ),
     );
   }
+
+  Widget _walletBanner() => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: AppTheme.accent.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.accent.withValues(alpha: 0.2)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.account_balance_wallet_rounded, color: AppTheme.accent),
+        const SizedBox(width: 10),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Available Balance', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+          Text('₹${widget.wallet.toStringAsFixed(0)}',
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.w700)),
+        ]),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppTheme.accent.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text('₹${widget.settings.pricePerPage}/page',
+              style: const TextStyle(color: AppTheme.accent, fontSize: 12, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    ),
+  );
+
+  Widget _sectionLabel(String text) => Text(text,
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary));
+
+  Widget _filePicker() => GestureDetector(
+    onTap: _uploading ? null : _pickFile,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: _file != null ? AppTheme.primary.withValues(alpha: 0.05) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _file != null ? AppTheme.primary : AppTheme.divider,
+          width: _file != null ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            _file != null ? Icons.picture_as_pdf_rounded : Icons.cloud_upload_outlined,
+            size: 44,
+            color: _file != null ? AppTheme.primary : AppTheme.textSecondary,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _file != null ? (_fileName ?? 'File selected') : 'Tap to select PDF',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: _file != null ? FontWeight.w600 : FontWeight.w400,
+              color: _file != null ? AppTheme.primary : AppTheme.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          if (_file == null) ...[
+            const SizedBox(height: 4),
+            const Text('PDF only • Max 50MB',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          ],
+        ],
+      ),
+    ),
+  );
+
+  Widget _optionsCard(SettingsModel s) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppTheme.divider),
+    ),
+    child: Column(
+      children: [
+        // Color mode
+        if (s.allowColor) ...[
+          _optionTile(
+            icon: Icons.palette_outlined,
+            title: 'Color Mode',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _modeChip('B&W', 'bw'),
+                const SizedBox(width: 8),
+                _modeChip('Color', 'color'),
+              ],
+            ),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+        ],
+
+        // Duplex
+        if (s.allowDuplex) ...[
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            secondary: const Icon(Icons.flip_to_back_rounded, color: AppTheme.textSecondary),
+            title: const Text('Duplex (Both Sides)',
+                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: AppTheme.textPrimary)),
+            subtitle: const Text('Print on both sides of paper',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+            value: _duplex,
+            activeThumbColor: AppTheme.primary,
+            activeTrackColor: AppTheme.primary.withValues(alpha: 0.35),
+            onChanged: (v) => setState(() => _duplex = v),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+        ],
+
+        // Pages per sheet
+        if (s.allowPagesPerSheet) ...[
+          _optionTile(
+            icon: Icons.grid_view_rounded,
+            title: 'Pages per Sheet',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [1, 2, 4].map((n) => Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: _sheetChip(n),
+              )).toList(),
+            ),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+        ],
+
+        // Page range
+        if (s.allowPageRange) ...[
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            secondary: const Icon(Icons.format_list_numbered_rounded, color: AppTheme.textSecondary),
+            title: const Text('Custom Page Range',
+                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: AppTheme.textPrimary)),
+            subtitle: const Text('Print specific pages only',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+            value: _usePageRange,
+            activeThumbColor: AppTheme.primary,
+            activeTrackColor: AppTheme.primary.withValues(alpha: 0.35),
+            onChanged: (v) => setState(() => _usePageRange = v),
+          ),
+          if (_usePageRange)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _pageFromCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'From page',
+                        hintText: '1',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text('to', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _pageToCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'To page',
+                        hintText: '10',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+
+        // Max pages info
+        if (s.maxPagesPerJob > 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, size: 14, color: AppTheme.warning),
+                const SizedBox(width: 6),
+                Text('Max ${s.maxPagesPerJob} pages per job',
+                    style: const TextStyle(fontSize: 12, color: AppTheme.warning)),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Widget _optionTile({required IconData icon, required String title, required Widget child}) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: AppTheme.textSecondary),
+            const SizedBox(width: 12),
+            Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.textPrimary)),
+            const Spacer(),
+            child,
+          ],
+        ),
+      );
+
+  Widget _modeChip(String label, String value) => GestureDetector(
+    onTap: () => setState(() => _colorMode = value),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: _colorMode == value ? AppTheme.primary : AppTheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _colorMode == value ? AppTheme.primary : AppTheme.divider),
+      ),
+      child: Text(label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _colorMode == value ? Colors.white : AppTheme.textSecondary,
+          )),
+    ),
+  );
+
+  Widget _sheetChip(int n) => GestureDetector(
+    onTap: () => setState(() => _pagesPerSheet = n),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 40, height: 32,
+      decoration: BoxDecoration(
+        color: _pagesPerSheet == n ? AppTheme.primary : AppTheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _pagesPerSheet == n ? AppTheme.primary : AppTheme.divider),
+      ),
+      child: Center(
+        child: Text('${n}up',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: _pagesPerSheet == n ? Colors.white : AppTheme.textSecondary,
+            )),
+      ),
+    ),
+  );
 }

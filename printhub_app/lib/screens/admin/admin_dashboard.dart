@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../models/print_job_model.dart';
+import '../../models/settings_model.dart';
+import '../../models/section_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
@@ -8,6 +10,7 @@ import '../auth/login_screen.dart';
 import 'students_tab.dart';
 import 'print_jobs_tab.dart';
 import 'settings_tab.dart';
+import 'sections_tab.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -20,36 +23,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _currentIndex = 0;
   UserModel? _user;
   String? _token;
-  List<UserModel> _students = [];
+  List<UserModel>     _students  = [];
   List<PrintJobModel> _printJobs = [];
-  double _pricePerPage = 1;
+  List<SectionModel>  _sections  = [];
+  SettingsModel       _settings  = const SettingsModel();
   bool _loading = true;
 
   @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
+  void initState() { super.initState(); _loadData(); }
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
     _token = await AuthService.getToken();
-    _user = await AuthService.getUser();
-
+    _user  = await AuthService.getUser();
     try {
       final results = await Future.wait([
         ApiService.getStudents(_token!),
         ApiService.getPrintJobs(_token!),
         ApiService.getSettings(),
+        ApiService.getSections(),
       ]);
       setState(() {
-        _students = results[0] as List<UserModel>;
+        _students  = results[0] as List<UserModel>;
         _printJobs = results[1] as List<PrintJobModel>;
-        _pricePerPage =
-            ((results[2] as Map)['pricePerPage'] ?? 1).toDouble();
-        _loading = false;
+        _settings  = results[2] as SettingsModel;
+        _sections  = results[3] as List<SectionModel>;
+        _loading   = false;
       });
-    } catch (e) {
+    } catch (_) {
       setState(() => _loading = false);
     }
   }
@@ -57,26 +58,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Future<void> _logout() async {
     await AuthService.clearSession();
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
     final tabs = [
-      StudentsTab(
-        students: _students,
-        token: _token ?? '',
-        onRefresh: _loadData,
-      ),
+      StudentsTab(students: _students, token: _token ?? '', onRefresh: _loadData),
       PrintJobsTab(jobs: _printJobs, onRefresh: _loadData),
-      SettingsTab(
-        token: _token ?? '',
-        pricePerPage: _pricePerPage,
-        onUpdated: _loadData,
-      ),
+      SectionsTab(sections: _sections, token: _token ?? '', onRefresh: _loadData),
+      SettingsTab(token: _token ?? '', settings: _settings, onUpdated: _loadData),
     ];
 
     return Scaffold(
@@ -84,69 +75,35 @@ class _AdminDashboardState extends State<AdminDashboard> {
       appBar: AppBar(
         title: const Text('Admin Dashboard'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-              onPressed: _loadData,
-              tooltip: 'Refresh',
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: const Icon(Icons.logout_rounded, color: Colors.white),
-              onPressed: _logout,
-              tooltip: 'Logout',
-            ),
-          ),
+          IconButton(icon: const Icon(Icons.refresh_rounded, color: Colors.white), onPressed: _loadData),
+          IconButton(icon: const Icon(Icons.logout_rounded, color: Colors.white), onPressed: _logout),
         ],
       ),
       body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppTheme.primary))
+          ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
           : Column(
               children: [
-                // Admin info banner
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
                   color: AppTheme.primary,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.admin_panel_settings_rounded,
-                            color: Colors.white, size: 22),
+                  child: Row(children: [
+                    Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _user?.name ?? 'Admin',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                          Text(
-                            '${_students.length} students • ${_printJobs.length} jobs',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                      child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(_user?.name ?? 'Admin',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+                      Text('${_students.length} students • ${_printJobs.length} jobs • ${_sections.length} sections',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12)),
+                    ]),
+                  ]),
                 ),
                 Expanded(child: tabs[_currentIndex]),
               ],
@@ -155,7 +112,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() => _currentIndex = i),
         backgroundColor: Colors.white,
-        indicatorColor: AppTheme.primary.withOpacity(0.12),
+        indicatorColor: AppTheme.primary.withValues(alpha: 0.12),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.people_outline_rounded),
@@ -165,7 +122,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
           NavigationDestination(
             icon: Icon(Icons.print_outlined),
             selectedIcon: Icon(Icons.print_rounded, color: AppTheme.primary),
-            label: 'Print Jobs',
+            label: 'Jobs',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.category_outlined),
+            selectedIcon: Icon(Icons.category_rounded, color: AppTheme.primary),
+            label: 'Sections',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

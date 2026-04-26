@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../models/settings_model.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loading_button.dart';
 
 class SettingsTab extends StatefulWidget {
   final String token;
-  final double pricePerPage;
+  final SettingsModel settings;
   final VoidCallback onUpdated;
 
   const SettingsTab({
     super.key,
     required this.token,
-    required this.pricePerPage,
+    required this.settings,
     required this.onUpdated,
   });
 
@@ -21,57 +23,69 @@ class SettingsTab extends StatefulWidget {
 
 class _SettingsTabState extends State<SettingsTab> {
   late TextEditingController _priceCtrl;
+  late TextEditingController _maxPagesCtrl;
+  late bool _allowColor;
+  late bool _allowDuplex;
+  late bool _allowPageRange;
+  late bool _allowPagesPerSheet;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _priceCtrl =
-        TextEditingController(text: widget.pricePerPage.toString());
+    final s = widget.settings;
+    _priceCtrl        = TextEditingController(text: s.pricePerPage.toString());
+    _maxPagesCtrl     = TextEditingController(text: s.maxPagesPerJob == 0 ? '' : s.maxPagesPerJob.toString());
+    _allowColor       = s.allowColor;
+    _allowDuplex      = s.allowDuplex;
+    _allowPageRange   = s.allowPageRange;
+    _allowPagesPerSheet = s.allowPagesPerSheet;
   }
 
   @override
   void dispose() {
     _priceCtrl.dispose();
+    _maxPagesCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _updatePrice() async {
+  Future<void> _save() async {
     final price = double.tryParse(_priceCtrl.text);
     if (price == null || price <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enter a valid price'),
-          backgroundColor: AppTheme.error,
-        ),
-      );
+      _snack('Enter a valid price', error: true);
       return;
     }
+    final maxPages = int.tryParse(_maxPagesCtrl.text) ?? 0;
 
     setState(() => _saving = true);
     try {
-      final data = await ApiService.updateSettings(widget.token, price);
+      final data = await ApiService.updateSettings(widget.token, {
+        'pricePerPage':       price,
+        'allowColor':         _allowColor,
+        'allowDuplex':        _allowDuplex,
+        'allowPageRange':     _allowPageRange,
+        'allowPagesPerSheet': _allowPagesPerSheet,
+        'maxPagesPerJob':     maxPages,
+      });
       if (data['error'] != null) {
-        _showSnack(data['error'], isError: true);
+        _snack(data['error'], error: true);
       } else {
-        _showSnack('Price updated to ₹$price per page', isError: false);
+        _snack('Settings saved', error: false);
         widget.onUpdated();
       }
-    } catch (e) {
-      _showSnack('Failed to update settings', isError: true);
+    } catch (_) {
+      _snack('Failed to save settings', error: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  void _showSnack(String msg, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? AppTheme.error : AppTheme.success,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  void _snack(String msg, {required bool error}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: error ? AppTheme.error : AppTheme.success,
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
@@ -81,124 +95,153 @@ class _SettingsTabState extends State<SettingsTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'System Settings',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textPrimary,
-            ),
-          ),
+          const Text('System Settings',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
           const SizedBox(height: 4),
-          const Text(
-            'Configure printing system parameters',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-          ),
+          const Text('Configure pricing and student print permissions',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
           const SizedBox(height: 24),
 
-          // Price card
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.divider),
-            ),
+          // ── Pricing ──────────────────────────────────────────────────────
+          _card(
+            icon: Icons.payments_rounded,
+            iconColor: AppTheme.warning,
+            title: 'Pricing',
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppTheme.warning.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.payments_rounded,
-                          color: AppTheme.warning, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Price Per Page',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                            color: AppTheme.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          'Cost charged per printed page',
-                          style: TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
                 TextField(
                   controller: _priceCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    labelText: 'Price (₹)',
-                    hintText: 'e.g. 1.5',
-                    prefixIcon: const Icon(Icons.currency_rupee),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                          const BorderSide(color: AppTheme.primary, width: 2),
-                    ),
-                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: _inputDeco('Price per page (₹)', '1.0', Icons.currency_rupee),
                 ),
-                const SizedBox(height: 16),
-                LoadingButton(
-                  label: 'Update Price',
-                  loading: _saving,
-                  onPressed: _updatePrice,
-                  icon: Icons.save_rounded,
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _maxPagesCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: _inputDeco('Max pages per job (0 = unlimited)', '0', Icons.layers_outlined),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // Current price display
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppTheme.primary.withOpacity(0.15)),
-            ),
-            child: Row(
+          // ── Print Permissions ─────────────────────────────────────────────
+          _card(
+            icon: Icons.tune_rounded,
+            iconColor: AppTheme.primary,
+            title: 'Student Print Permissions',
+            child: Column(
               children: [
-                const Icon(Icons.info_outline,
-                    color: AppTheme.primary, size: 20),
-                const SizedBox(width: 10),
-                Text(
-                  'Current price: ₹${widget.pricePerPage} per page',
-                  style: const TextStyle(
-                    color: AppTheme.primary,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 14,
-                  ),
+                _permSwitch(
+                  icon: Icons.palette_outlined,
+                  title: 'Allow Color Printing',
+                  subtitle: 'Students can choose color mode',
+                  value: _allowColor,
+                  onChanged: (v) => setState(() => _allowColor = v),
+                ),
+                const Divider(height: 1),
+                _permSwitch(
+                  icon: Icons.flip_to_back_rounded,
+                  title: 'Allow Duplex Printing',
+                  subtitle: 'Students can print on both sides',
+                  value: _allowDuplex,
+                  onChanged: (v) => setState(() => _allowDuplex = v),
+                ),
+                const Divider(height: 1),
+                _permSwitch(
+                  icon: Icons.format_list_numbered_rounded,
+                  title: 'Allow Custom Page Range',
+                  subtitle: 'Students can print specific pages',
+                  value: _allowPageRange,
+                  onChanged: (v) => setState(() => _allowPageRange = v),
+                ),
+                const Divider(height: 1),
+                _permSwitch(
+                  icon: Icons.grid_view_rounded,
+                  title: 'Allow Multiple Pages per Sheet',
+                  subtitle: 'Students can print 2 or 4 pages on one sheet',
+                  value: _allowPagesPerSheet,
+                  onChanged: (v) => setState(() => _allowPagesPerSheet = v),
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 24),
+
+          LoadingButton(
+            label: 'Save Settings',
+            loading: _saving,
+            onPressed: _save,
+            icon: Icons.save_rounded,
           ),
         ],
       ),
     );
   }
+
+  Widget _card({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textPrimary)),
+          ]),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _permSwitch({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 2),
+      secondary: Icon(icon, color: AppTheme.textSecondary, size: 20),
+      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.textPrimary)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+      value: value,
+      activeThumbColor: AppTheme.primary,
+      activeTrackColor: AppTheme.primary.withValues(alpha: 0.35),
+      onChanged: onChanged,
+    );
+  }
+
+  InputDecoration _inputDeco(String label, String hint, IconData icon) => InputDecoration(
+    labelText: label,
+    hintText: hint,
+    prefixIcon: Icon(icon),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+    ),
+  );
 }

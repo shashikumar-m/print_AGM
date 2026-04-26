@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/user_model.dart';
@@ -58,6 +59,10 @@ class _LoginScreenState extends State<LoginScreen>
         _showError(data['error']);
         return;
       }
+      if (data['token'] == null || data['user'] == null) {
+        _showError('Unexpected response from server. Please try again.');
+        return;
+      }
       final user = UserModel.fromJson(data['user']);
       await AuthService.saveSession(data['token'], user);
       if (!mounted) return;
@@ -68,8 +73,10 @@ class _LoginScreenState extends State<LoginScreen>
               user.isAdmin ? const AdminDashboard() : const StudentDashboard(),
         ),
       );
+    } on TimeoutException {
+      _showError('Server took too long to respond. Try again.');
     } catch (e) {
-      _showError('Connection failed. Check your internet.');
+      _showError('Connection failed: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
