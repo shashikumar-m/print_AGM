@@ -106,40 +106,68 @@ class _LoginScreenState extends State<LoginScreen>
         child: SafeArea(
           child: Column(
             children: [
-              // Header
+              // Header — college logo + name
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 40, 24, 32),
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
                 child: Column(
                   children: [
+                    // College logo in circle
                     Container(
-                      width: 72,
-                      height: 72,
+                      width: 80,
+                      height: 80,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(
-                        Icons.print_rounded,
-                        size: 40,
                         color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.all(6),
+                      child: ClipOval(
+                        child: Image.asset(
+                          'assets/images/college_logo.png',
+                          fit: BoxFit.contain,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     const Text(
-                      'PrintHub',
+                      'AGM Rural College of Engineering',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Smart Student Printing System',
+                    const Text(
+                      'and Technology, Hubli',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.85),
-                        fontSize: 14,
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.print_rounded, color: Colors.white70, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          'PrintHub — Smart Printing',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

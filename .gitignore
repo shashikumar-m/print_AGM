@@ -5,6 +5,9 @@ node_modules
 .DS_Store
 *.log
 
+# Logs folder (auto-generated)
+logs/*.log
+
 # Keep uploads folder but ignore its contents
 server/uploads/*
 !server/uploads/.gitkeep

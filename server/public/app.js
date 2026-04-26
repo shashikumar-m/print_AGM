@@ -50,9 +50,15 @@ function showLoginPage() {
     <div class="auth-wrap">
       <div class="auth-card">
         <div class="auth-logo">
-          <span class="logo-icon">🖨️</span>
-          <h1>PrintHub</h1>
-          <p>Smart Student Printing System</p>
+          <div class="college-logo-wrap">
+            <img src="/images/college_logo.png" alt="AGM College Logo" class="college-logo-img">
+          </div>
+          <h1 class="college-name">AGM Rural College of Engineering<br>and Technology, Hubli</h1>
+          <div class="printhub-badge">
+            <span class="printhub-icon">🖨️</span>
+            <span class="printhub-label">PrintHub</span>
+          </div>
+          <p class="auth-tagline">Smart Student Printing System</p>
         </div>
 
         <form id="loginForm">
@@ -72,7 +78,6 @@ function showLoginPage() {
         </form>
 
         <div class="auth-hint" style="display:none"></div>
-
         <div class="auth-toggle" style="display:none"></div>
       </div>
     </div>
@@ -190,7 +195,11 @@ async function showStudentDashboard() {
     <div class="dashboard">
       <nav class="topnav">
         <div class="topnav-left">
-          <span class="nav-logo">🖨️ PrintHub</span>
+          <img src="/images/college_logo.png" alt="AGM" class="nav-college-logo">
+          <div class="nav-title-group">
+            <span class="nav-college-name">AGM Rural College</span>
+            <span class="nav-logo">🖨️ PrintHub</span>
+          </div>
           ${currentUser.section ? `<span class="section-badge">${currentUser.section}</span>` : ''}
         </div>
         <div class="topnav-right">
@@ -379,7 +388,13 @@ async function showAdminDashboard() {
     document.getElementById('app').innerHTML = `
     <div class="dashboard">
       <nav class="topnav">
-        <div class="topnav-left"><span class="nav-logo">⚙️ PrintHub Admin</span></div>
+        <div class="topnav-left">
+          <img src="/images/college_logo.png" alt="AGM" class="nav-college-logo">
+          <div class="nav-title-group">
+            <span class="nav-college-name">AGM Rural College</span>
+            <span class="nav-logo">⚙️ PrintHub Admin</span>
+          </div>
+        </div>
         <div class="topnav-right">
           <span class="nav-user">👤 ${currentUser.name}</span>
           <button class="btn-logout" onclick="logout()">Logout</button>
