@@ -6,9 +6,8 @@ import '../models/user_model.dart';
 import '../models/print_job_model.dart';
 
 class ApiService {
-  // Your PC's local IP — phone must be on the same WiFi
-  // Change to your hosted URL when deploying to internet
-  static const String baseUrl = 'http://192.168.29.235:3000';
+  // Render hosted server — works from anywhere (mobile data, any WiFi)
+  static const String baseUrl = 'https://print-agm.onrender.com';
 
   // ============ AUTH ============
   static Future<Map<String, dynamic>> login(String email, String password) async {

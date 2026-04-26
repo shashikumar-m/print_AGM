@@ -2,12 +2,17 @@ node_modules
 .env
 .env.local
 .env.*.local
-uploads/
-db.json
 .DS_Store
 *.log
-print-agent/admin*.pdf
-print-agent/temp.pdf
+
+# Keep uploads folder but ignore its contents
 server/uploads/*
+!server/uploads/.gitkeep
 
+# print-agent temp files
+print-agent/temp/
+print-agent/node_modules/
 
+# Flutter
+printhub_app/.dart_tool/
+printhub_app/build/
