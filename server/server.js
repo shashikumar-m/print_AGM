@@ -66,6 +66,7 @@ const printJobSchema = new mongoose.Schema({
     cost: Number,
     status: { type: String, enum: ['pending', 'printing', 'completed', 'failed'], default: 'pending' },
     duplex: Boolean,
+    fileUrl: String,
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -328,25 +329,26 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
             pages: pages,
             cost: cost,
             status: 'pending',
-            duplex: req.body.duplex === 'true'
+            duplex: req.body.duplex === 'true',
+            fileUrl: `${process.env.SERVER_URL || `http://localhost:${PORT}`}/uploads/${req.file.filename}`
         });
         await printJob.save();
-        
-        // Send to print agent
-        const fileUrl = `https://print-agm.onrender.com/uploads/${req.file.filename}`;
-        
-        try {
-            await axios.post(PRINT_AGENT_URL, {
-                fileUrl,
-                duplex: req.body.duplex === 'true'
-            });
-            printJob.status = 'printing';
-        } catch (err) {
-            printJob.status = 'failed';
-            console.error('Print agent error:', err.message);
+
+        // Try to notify print agent if configured (optional, agent also polls)
+        if (process.env.PRINT_AGENT_URL) {
+            try {
+                await axios.post(process.env.PRINT_AGENT_URL, {
+                    jobId: printJob._id,
+                    fileUrl: printJob.fileUrl,
+                    duplex: req.body.duplex === 'true'
+                }, { timeout: 5000 });
+                printJob.status = 'printing';
+                await printJob.save();
+            } catch (err) {
+                // Agent not reachable — job stays 'pending', agent will poll and pick it up
+                console.log('Print agent not reachable, job queued as pending:', err.message);
+            }
         }
-        
-        await printJob.save();
         
         res.json({
             message: 'PDF submitted for printing',
@@ -359,6 +361,36 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Error processing PDF' });
+    }
+});
+
+// ============ PRINT AGENT ROUTES ============
+// Agent polls this to get pending jobs
+app.get('/api/agent/pending-jobs', async (req, res) => {
+    try {
+        const agentKey = req.headers['x-agent-key'];
+        if (agentKey !== (process.env.AGENT_KEY || 'printhub-agent-secret')) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        const jobs = await PrintJob.find({ status: 'pending' }).sort({ createdAt: 1 });
+        res.json(jobs);
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching pending jobs' });
+    }
+});
+
+// Agent calls this to update job status
+app.post('/api/agent/update-job', async (req, res) => {
+    try {
+        const agentKey = req.headers['x-agent-key'];
+        if (agentKey !== (process.env.AGENT_KEY || 'printhub-agent-secret')) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        const { jobId, status } = req.body;
+        await PrintJob.findByIdAndUpdate(jobId, { status });
+        res.json({ message: 'Job updated', jobId, status });
+    } catch (err) {
+        res.status(500).json({ error: 'Error updating job' });
     }
 });
 
