@@ -82,6 +82,15 @@ class ApiService {
     return list.map((e) => UserModel.fromJson(e)).toList();
   }
 
+  static Future<Map<String, dynamic>> createStudent(
+      String token, Map<String, dynamic> data) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/admin/students'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode(data))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
   static Future<List<PrintJobModel>> getPrintJobs(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/admin/print-jobs'),
         headers: _auth(token))

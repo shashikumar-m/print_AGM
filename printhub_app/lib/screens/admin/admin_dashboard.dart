@@ -64,7 +64,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   Widget build(BuildContext context) {
     final tabs = [
-      StudentsTab(students: _students, token: _token ?? '', onRefresh: _loadData),
+      StudentsTab(students: _students, sections: _sections, token: _token ?? '', onRefresh: _loadData),
       PrintJobsTab(jobs: _printJobs, onRefresh: _loadData),
       SectionsTab(sections: _sections, token: _token ?? '', onRefresh: _loadData),
       SettingsTab(token: _token ?? '', settings: _settings, onUpdated: _loadData),

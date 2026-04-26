@@ -8,7 +8,6 @@ import '../../widgets/custom_text_field.dart';
 import '../../widgets/loading_button.dart';
 import '../student/student_dashboard.dart';
 import '../admin/admin_dashboard.dart';
-import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -225,69 +224,7 @@ class _LoginScreenState extends State<LoginScreen>
                               loading: _loading,
                               onPressed: _login,
                             ),
-                            const SizedBox(height: 20),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text(
-                                  "Don't have an account? ",
-                                  style: TextStyle(color: AppTheme.textSecondary),
-                                ),
-                                GestureDetector(
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) => const RegisterScreen()),
-                                  ),
-                                  child: const Text(
-                                    'Register',
-                                    style: TextStyle(
-                                      color: AppTheme.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 32),
-
-                            // Demo credentials
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary.withOpacity(0.06),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: AppTheme.primary.withOpacity(0.15),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(Icons.info_outline,
-                                          size: 16,
-                                          color: AppTheme.primary.withOpacity(0.8)),
-                                      const SizedBox(width: 6),
-                                      const Text(
-                                        'Demo Credentials',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          color: AppTheme.primary,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  _demoRow('Admin', 'admin@example.com', 'admin123'),
-                                  const SizedBox(height: 6),
-                                  _demoRow('Student', 'student@example.com', 'student123'),
-                                ],
-                              ),
-                            ),
+                            const SizedBox(height: 28),
                           ],
                         ),
                       ),
@@ -302,42 +239,4 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _demoRow(String role, String email, String pass) {
-    return GestureDetector(
-      onTap: () {
-        _emailCtrl.text = email;
-        _passCtrl.text = pass;
-      },
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              role,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.primary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '$email / $pass',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ),
-          const Icon(Icons.touch_app, size: 14, color: AppTheme.textSecondary),
-        ],
-      ),
-    );
-  }
 }

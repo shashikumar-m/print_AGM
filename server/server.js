@@ -88,16 +88,22 @@ const PrintJob = mongoose.model('PrintJob', printJobSchema);
 // ── Seed ─────────────────────────────────────────────────────────────────────
 async function initDB() {
     try {
-        if (!await User.findOne({ email: 'admin@example.com' }))
-            await User.create({ email: 'admin@example.com', password: bcrypt.hashSync('admin123', 10), role: 'admin', name: 'Admin' });
-        if (!await User.findOne({ email: 'student@example.com' }))
-            await User.create({ email: 'student@example.com', password: bcrypt.hashSync('student123', 10), role: 'student', name: 'John Doe', wallet: 500, section: 'CSE' });
+        // Only seed the real admin account — no demo students
+        if (!await User.findOne({ role: 'admin' }))
+            await User.create({
+                email:    'admin',
+                password: bcrypt.hashSync('123456', 10),
+                role:     'admin',
+                name:     'Admin'
+            });
         if (!await Settings.findOne())
             await Settings.create({});
-        if (!await Section.findOne({ name: 'CSE' }))
-            await Section.create({ name: 'CSE' });
-        if (!await Section.findOne({ name: 'ECE' }))
-            await Section.create({ name: 'ECE' });
+        // Seed default sections if none exist
+        if (await Section.countDocuments() === 0) {
+            await Section.insertMany([
+                { name: 'CSE' }, { name: 'ECE' }, { name: 'MECH' }, { name: 'CIVIL' }
+            ]);
+        }
     } catch (err) {
         console.log('initDB:', err.message);
     }
@@ -298,6 +304,22 @@ app.get('/api/admin/students', verifyToken, async (req, res) => {
         if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
         res.json(await User.find({ role: 'student' }).select('-password'));
     } catch { res.status(500).json({ error: 'Error fetching students' }); }
+});
+
+// Admin creates a student directly (no self-registration)
+app.post('/api/admin/students', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        const { name, email, password, section, wallet } = req.body;
+        if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
+        if (await User.findOne({ email })) return res.status(400).json({ error: 'Email already exists' });
+        const student = await new User({
+            email, password: bcrypt.hashSync(password, 10),
+            role: 'student', name, section: section || '',
+            wallet: parseInt(wallet) || 0
+        }).save();
+        res.json({ message: 'Student created', student: { id: student._id, name: student.name, email: student.email, section: student.section, wallet: student.wallet } });
+    } catch { res.status(500).json({ error: 'Error creating student' }); }
 });
 
 app.post('/api/admin/add-wallet', verifyToken, async (req, res) => {
