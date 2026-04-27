@@ -127,11 +127,9 @@ class _PrintersTabState extends State<PrintersTab> {
                 IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
               ]),
               const SizedBox(height: 16),
-              // Type selector
+              // Type selector — Section and Faculty only
               Row(children: [
                 _typeChip('Section', assignType == 'section', () => setSheet(() { assignType = 'section'; selectedId = null; })),
-                const SizedBox(width: 8),
-                _typeChip('Student', assignType == 'student', () => setSheet(() { assignType = 'student'; selectedId = null; })),
                 const SizedBox(width: 8),
                 _typeChip('Faculty', assignType == 'faculty', () => setSheet(() { assignType = 'faculty'; selectedId = null; })),
               ]),
@@ -147,9 +145,7 @@ class _PrintersTabState extends State<PrintersTab> {
                 ),
                 items: assignType == 'section'
                     ? widget.sections.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList()
-                    : assignType == 'student'
-                        ? widget.students.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))).toList()
-                        : widget.faculty.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))).toList(),
+                    : widget.faculty.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))).toList(),
                 onChanged: (v) => setSheet(() => selectedId = v),
               ),
               const SizedBox(height: 20),
@@ -161,6 +157,7 @@ class _PrintersTabState extends State<PrintersTab> {
                     if (assignType == 'section') {
                       result = await ApiService.assignPrinterToSection(widget.token, selectedId!, printer.id);
                     } else {
+                      // Faculty
                       result = await ApiService.assignPrinterToUser(widget.token, selectedId!, printer.id);
                     }
                     if (!ctx.mounted) return;

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../models/settings_model.dart';
-import '../../models/printer_location_model.dart';
+import '../../models/section_model.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/loading_button.dart';
@@ -38,23 +38,23 @@ class _UploadScreenState extends State<UploadScreen> {
   final  _pageFromCtrl  = TextEditingController();
   final  _pageToCtrl    = TextEditingController();
 
-  // Printer location (faculty only)
-  List<PrinterLocationModel> _locations = [];
-  String? _selectedLocationId;
+  // Faculty: section picker (routes to that section's printer)
+  List<SectionModel> _facultySections = [];
+  String? _selectedSectionId;
 
-  bool   _uploading = false;
-  double _progress  = 0;
+  bool   _uploading  = false;
+  double _progress   = 0;
   String _statusText = '';
 
   @override
   void initState() {
     super.initState();
-    if (widget.isFaculty) _loadLocations();
+    if (widget.isFaculty) _loadFacultySections();
   }
 
-  Future<void> _loadLocations() async {
-    final locs = await ApiService.getPrinterLocations();
-    if (mounted) setState(() => _locations = locs);
+  Future<void> _loadFacultySections() async {
+    final secs = await ApiService.getFacultySections(widget.token);
+    if (mounted) setState(() => _facultySections = secs);
   }
 
   @override
@@ -98,12 +98,12 @@ class _UploadScreenState extends State<UploadScreen> {
 
     try {
       final opts = <String, String>{
-        'duplex':            _duplex.toString(),
-        'colorMode':         _colorMode,
-        'pagesPerSheet':     _pagesPerSheet.toString(),
-        'pageFrom':          _usePageRange ? (_pageFromCtrl.text) : '0',
-        'pageTo':            _usePageRange ? (_pageToCtrl.text)   : '0',
-        'printerLocationId': _selectedLocationId ?? '',
+        'duplex':           _duplex.toString(),
+        'colorMode':        _colorMode,
+        'pagesPerSheet':    _pagesPerSheet.toString(),
+        'pageFrom':         _usePageRange ? (_pageFromCtrl.text) : '0',
+        'pageTo':           _usePageRange ? (_pageToCtrl.text)   : '0',
+        'chosenSectionId':  widget.isFaculty ? (_selectedSectionId ?? '') : '',
       };
 
       final data = await ApiService.uploadPDF(widget.token, _file!, opts);
@@ -231,11 +231,16 @@ class _UploadScreenState extends State<UploadScreen> {
                 _optionsCard(s),
                 const SizedBox(height: 16),
 
-                // ── Printer location (faculty only) ────────────────────────
+                // ── Section picker (faculty only) ─────────────────────────
                 if (widget.isFaculty) ...[
-                  _sectionLabel('3. Select Printer'),
+                  _sectionLabel('3. Print to Section\'s Printer'),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Select which section\'s printer to send this job to',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
                   const SizedBox(height: 8),
-                  _printerLocationPicker(),
+                  _sectionPicker(),
                   const SizedBox(height: 16),
                 ],
 
@@ -556,7 +561,7 @@ class _UploadScreenState extends State<UploadScreen> {
   );
 
   Widget _printerLocationPicker() {
-    if (_locations.isEmpty) {
+    if (_facultySections.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -567,8 +572,8 @@ class _UploadScreenState extends State<UploadScreen> {
         child: const Row(children: [
           Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 18),
           SizedBox(width: 8),
-          Text('No printers configured. Contact admin.',
-              style: TextStyle(color: AppTheme.warning, fontSize: 13)),
+          Expanded(child: Text('No sections assigned to your printer. Contact admin.',
+              style: TextStyle(color: AppTheme.warning, fontSize: 13))),
         ]),
       );
     }
@@ -579,10 +584,10 @@ class _UploadScreenState extends State<UploadScreen> {
         border: Border.all(color: AppTheme.divider),
       ),
       child: Column(
-        children: _locations.map((loc) {
-          final selected = _selectedLocationId == loc.id;
+        children: _facultySections.map((sec) {
+          final selected = _selectedSectionId == sec.id;
           return GestureDetector(
-            onTap: () => setState(() => _selectedLocationId = loc.id),
+            onTap: () => setState(() => _selectedSectionId = sec.id),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
@@ -594,48 +599,19 @@ class _UploadScreenState extends State<UploadScreen> {
                 Container(
                   width: 36, height: 36,
                   decoration: BoxDecoration(
-                    color: (loc.isOnline ? AppTheme.success : AppTheme.textSecondary)
-                        .withValues(alpha: 0.1),
+                    color: AppTheme.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.print_rounded,
-                      color: loc.isOnline ? AppTheme.success : AppTheme.textSecondary,
-                      size: 20),
+                  child: const Icon(Icons.category_rounded, color: AppTheme.primary, size: 20),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(loc.name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: selected ? AppTheme.primary : AppTheme.textPrimary,
-                        )),
-                    if (loc.description.isNotEmpty)
-                      Text(loc.description,
-                          style: const TextStyle(
-                              fontSize: 12, color: AppTheme.textSecondary)),
-                    Row(children: [
-                      Container(
-                        width: 6, height: 6,
-                        decoration: BoxDecoration(
-                          color: loc.isOnline ? AppTheme.success : Colors.grey,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(loc.isOnline ? 'Online' : 'Offline',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: loc.isOnline ? AppTheme.success : Colors.grey,
-                          )),
-                    ]),
-                  ],
-                )),
+                Expanded(child: Text(sec.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 15,
+                      color: selected ? AppTheme.primary : AppTheme.textPrimary,
+                    ))),
                 if (selected)
-                  const Icon(Icons.check_circle_rounded,
-                      color: AppTheme.primary, size: 20),
+                  const Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 20),
               ]),
             ),
           );
@@ -643,4 +619,6 @@ class _UploadScreenState extends State<UploadScreen> {
       ),
     );
   }
+
+  Widget _sectionPicker() => _printerLocationPicker();
 }

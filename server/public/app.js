@@ -191,6 +191,8 @@ function showDashboard() {
 // ============================================================
 async function showStudentDashboard() {
     await loadSettings();
+    const isFaculty = currentUser.role === 'faculty';
+
     document.getElementById('app').innerHTML = `
     <div class="dashboard">
       <nav class="topnav">
@@ -201,6 +203,7 @@ async function showStudentDashboard() {
             <span class="nav-logo">🖨️ PrintHub</span>
           </div>
           ${currentUser.section ? `<span class="section-badge">${currentUser.section}</span>` : ''}
+          ${isFaculty ? `<span class="section-badge" style="background:rgba(124,58,237,.3)">Faculty</span>` : ''}
         </div>
         <div class="topnav-right">
           <span class="nav-user">👤 ${currentUser.name}</span>
@@ -212,10 +215,10 @@ async function showStudentDashboard() {
         <div id="alertContainer"></div>
 
         <!-- Wallet card -->
-        <div class="wallet-card">
-          <div class="wallet-label">💰 Wallet Balance</div>
-          <div class="wallet-amount">₹<span id="walletAmt">…</span></div>
-          <div class="wallet-sub">₹<span id="priceDisplay">${settings.pricePerPage}</span> per page</div>
+        <div class="wallet-card" style="${isFaculty ? 'background:linear-gradient(135deg,#7c3aed,#6d28d9)' : ''}">
+          <div class="wallet-label">${isFaculty ? '🎓 Faculty Account' : '💰 Wallet Balance'}</div>
+          <div class="wallet-amount">${isFaculty ? '∞ Free' : '₹<span id="walletAmt">…</span>'}</div>
+          <div class="wallet-sub">${isFaculty ? 'Unlimited free printing' : '₹<span id="priceDisplay">' + settings.pricePerPage + '</span> per page'}</div>
         </div>
 
         <!-- Upload card -->
@@ -232,11 +235,9 @@ async function showStudentDashboard() {
             </div>
           </div>
 
-          <!-- Print options -->
-          <div class="print-options">
+          <!-- Print options (students only) -->
+          ${!isFaculty ? `<div class="print-options">
             <h3 class="options-title">Print Options</h3>
-
-            <!-- Color mode -->
             ${settings.allowColor ? `
             <div class="option-row">
               <span class="option-label">🎨 Color Mode</span>
@@ -245,8 +246,6 @@ async function showStudentDashboard() {
                 <button class="chip"        id="chip-color" onclick="selectChip('colorMode','color',this)">Color</button>
               </div>
             </div>` : ''}
-
-            <!-- Duplex -->
             ${settings.allowDuplex ? `
             <div class="option-row">
               <span class="option-label">🔄 Duplex (Both Sides)</span>
@@ -255,8 +254,6 @@ async function showStudentDashboard() {
                 <span class="toggle-slider"></span>
               </label>
             </div>` : ''}
-
-            <!-- Pages per sheet -->
             ${settings.allowPagesPerSheet ? `
             <div class="option-row">
               <span class="option-label">📐 Pages per Sheet</span>
@@ -266,8 +263,6 @@ async function showStudentDashboard() {
                 <button class="chip"        onclick="selectChip('pagesPerSheet','4',this)">4</button>
               </div>
             </div>` : ''}
-
-            <!-- Page range -->
             ${settings.allowPageRange ? `
             <div class="option-row">
               <span class="option-label">📋 Custom Page Range</span>
@@ -281,9 +276,18 @@ async function showStudentDashboard() {
               <span>to</span>
               <input type="number" id="pageTo"   placeholder="To"   min="1">
             </div>` : ''}
-
             ${settings.maxPagesPerJob > 0 ? `<p class="option-note">⚠️ Max ${settings.maxPagesPerJob} pages per job</p>` : ''}
-          </div>
+          </div>` : ''}
+
+          <!-- Section picker (faculty only) -->
+          ${isFaculty ? `
+          <div class="print-options">
+            <h3 class="options-title">🗂️ Select Section to Print For</h3>
+            <p style="font-size:13px;color:#64748b;margin-bottom:12px">
+              Choose which section's printer to send this job to.
+            </p>
+            <div id="facultySectionList"><div style="color:#94a3b8;font-size:13px">Loading sections…</div></div>
+          </div>` : ''}
 
           <button class="btn btn-primary btn-submit" onclick="submitPDF()">🖨️ Submit for Printing</button>
         </div>
@@ -292,6 +296,29 @@ async function showStudentDashboard() {
 
     // Hidden state for chips
     window._printOpts = { colorMode:'bw', pagesPerSheet:'1' };
+    window._chosenSectionId = '';
+
+    // Load faculty sections if faculty role
+    if (isFaculty) {
+        fetch(API+'/faculty/sections-for-printer', {headers:{'Authorization':`Bearer ${token}`}})
+            .then(r => r.json())
+            .then(secs => {
+                const el = document.getElementById('facultySectionList');
+                if (!el) return;
+                if (!secs.length) {
+                    el.innerHTML = `<div style="color:#f59e0b;font-size:13px;padding:12px;background:#fef3c7;border-radius:8px">
+                        ⚠️ No sections assigned to your printer. Contact admin.</div>`;
+                    return;
+                }
+                el.innerHTML = secs.map(s => `
+                  <div class="section-select-item" id="sec-${s._id}" onclick="selectFacultySection('${s._id}','${s.name}',this)">
+                    <div class="section-select-icon">🗂️</div>
+                    <div class="section-select-name">${s.name}</div>
+                    <div class="section-select-check" id="check-${s._id}" style="display:none">✅</div>
+                  </div>`).join('');
+            })
+            .catch(() => {});
+    }
 
     document.getElementById('pdfInput').addEventListener('change', e => {
         const f = e.target.files[0];
@@ -303,12 +330,26 @@ async function showStudentDashboard() {
           <div class="file-drop-sub">${(f.size/1024/1024).toFixed(2)} MB</div>`;
     });
 
-    // Load wallet
-    try {
-        const r = await fetch(API+'/student/wallet',{headers:{'Authorization':`Bearer ${token}`}});
-        const d = await r.json();
-        document.getElementById('walletAmt').textContent = d.wallet ?? 0;
-    } catch { document.getElementById('walletAmt').textContent = currentUser.wallet ?? 0; }
+    // Load wallet (students only)
+    if (!isFaculty) {
+        try {
+            const r = await fetch(API+'/student/wallet',{headers:{'Authorization':`Bearer ${token}`}});
+            const d = await r.json();
+            document.getElementById('walletAmt').textContent = d.wallet ?? 0;
+        } catch { document.getElementById('walletAmt').textContent = currentUser.wallet ?? 0; }
+    }
+}
+
+function selectFacultySection(id, name, el) {
+    window._chosenSectionId = id;
+    // Clear all selections
+    document.querySelectorAll('.section-select-item').forEach(item => {
+        item.classList.remove('selected');
+        item.querySelector('[id^="check-"]').style.display = 'none';
+    });
+    // Mark selected
+    el.classList.add('selected');
+    document.getElementById('check-'+id).style.display = 'block';
 }
 
 function selectChip(key, value, el) {
@@ -326,6 +367,13 @@ async function submitPDF() {
     const input = document.getElementById('pdfInput');
     if (!input.files[0]) { showAlert('Please select a PDF file','error'); return; }
 
+    const isFaculty = currentUser.role === 'faculty';
+
+    // Faculty must select a section
+    if (isFaculty && !window._chosenSectionId) {
+        showAlert('Please select a section to print for','error'); return;
+    }
+
     const useRange = document.getElementById('rangeCheck')?.checked;
     const pageFrom = useRange ? (parseInt(document.getElementById('pageFrom')?.value)||0) : 0;
     const pageTo   = useRange ? (parseInt(document.getElementById('pageTo')?.value)||0)   : 0;
@@ -334,12 +382,13 @@ async function submitPDF() {
     }
 
     const fd = new FormData();
-    fd.append('pdf',          input.files[0]);
-    fd.append('colorMode',    window._printOpts.colorMode    || 'bw');
-    fd.append('duplex',       document.getElementById('duplexCheck')?.checked || false);
-    fd.append('pagesPerSheet',window._printOpts.pagesPerSheet || '1');
-    fd.append('pageFrom',     pageFrom);
-    fd.append('pageTo',       pageTo);
+    fd.append('pdf',             input.files[0]);
+    fd.append('colorMode',       window._printOpts.colorMode    || 'bw');
+    fd.append('duplex',          document.getElementById('duplexCheck')?.checked || false);
+    fd.append('pagesPerSheet',   window._printOpts.pagesPerSheet || '1');
+    fd.append('pageFrom',        pageFrom);
+    fd.append('pageTo',          pageTo);
+    fd.append('chosenSectionId', window._chosenSectionId || '');
 
     // Progress overlay
     const overlay = document.createElement('div');
@@ -952,7 +1001,7 @@ function renderPrinters() {
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-sm" onclick="openAssignModal('section','${p._id}','${p.name}')">Assign to Section</button>
-          <button class="btn btn-sm" onclick="openAssignModal('user','${p._id}','${p.name}')">Assign to User</button>
+          <button class="btn btn-sm" onclick="openAssignModal('faculty','${p._id}','${p.name}')">Assign to Faculty</button>
         </div>
       </div>`).join('');
 }
@@ -1006,22 +1055,23 @@ function openAssignModal(type, printerId, printerName) {
     _assignType = type;
     _assignPrinterId = printerId;
     document.getElementById('assignPrinterTitle').textContent =
-        `Assign "${printerName}" to ${type === 'section' ? 'Section' : 'User'}`;
+        `Assign "${printerName}" to ${type === 'section' ? 'Section' : 'Faculty'}`;
 
     const sel = document.getElementById('assignPrinterSelect');
     sel.innerHTML = '<option value="">— Remove assignment —</option>';
 
     if (type === 'section') {
         document.getElementById('assignPrinterSub').textContent =
-            'All students in the selected section will print to this printer by default.';
+            'All students in this section will automatically print to this printer.';
         allSections.forEach(s => {
             sel.innerHTML += `<option value="${s._id}">${s.name}</option>`;
         });
     } else {
+        // Faculty only
         document.getElementById('assignPrinterSub').textContent =
-            'This user will always print to this printer (overrides section default).';
-        [...allStudents, ...allFaculty].forEach(u => {
-            sel.innerHTML += `<option value="${u._id}">${u.name} (${u.role})</option>`;
+            'This faculty member will automatically print to this printer.';
+        allFaculty.forEach(u => {
+            sel.innerHTML += `<option value="${u._id}">${u.name}${u.department ? ' ('+u.department+')' : ''}</option>`;
         });
     }
     document.getElementById('assignPrinterModal').classList.add('active');

@@ -92,6 +92,15 @@ class ApiService {
     return list.map((e) => SectionModel.fromJson(e)).toList();
   }
 
+  // Faculty: get only sections assigned to the same printer as this faculty
+  static Future<List<SectionModel>> getFacultySections(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/faculty/sections-for-printer'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => SectionModel.fromJson(e)).toList();
+  }
+
   static Future<Map<String, dynamic>> createSection(String token, String name) async {
     final r = await http.post(Uri.parse('$baseUrl/api/admin/sections'),
         headers: {'Content-Type': 'application/json', ..._auth(token)},

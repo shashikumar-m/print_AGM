@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>PrintHub Print Agent - polls server and sends jobs to printer</Description>
+    <Description>PrintHub Print Agent</Description>
   </RegistrationInfo>
   <Triggers>
-    <BootTrigger>
-      <Enabled>true</Enabled>
-    </BootTrigger>
+    <BootTrigger><Enabled>true</Enabled></BootTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
@@ -19,10 +17,7 @@
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
+    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
     <StartWhenAvailable>true</StartWhenAvailable>
   </Settings>
   <Actions>

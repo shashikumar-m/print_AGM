@@ -233,12 +233,32 @@ app.post('/api/admin/sections/:id/assign-printer', verifyToken, requireAdmin, as
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
-// Assign printer to a specific user (overrides section default)
+// Assign printer to a faculty member
 app.post('/api/admin/users/:id/assign-printer', verifyToken, requireAdmin, async (req, res) => {
     try {
         const { printerId } = req.body;
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (user.role !== 'faculty') return res.status(400).json({ error: 'Can only assign printer to faculty' });
         await User.findByIdAndUpdate(req.params.id, { assignedPrinterId: printerId || '' });
-        res.json({ message: 'Printer assigned to user' });
+        res.json({ message: 'Printer assigned to faculty' });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Get sections that have a specific printer assigned (for faculty upload screen)
+app.get('/api/faculty/sections-for-printer', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'faculty') return res.status(403).json({ error: 'Unauthorized' });
+        // Get this faculty's assigned printer
+        const faculty = await User.findById(req.user.id);
+        const printerId = faculty?.assignedPrinterId || '';
+        if (!printerId) {
+            // No printer assigned — return all sections
+            return res.json(await Section.find().sort({ name: 1 }));
+        }
+        // Return only sections assigned to the same printer as this faculty
+        const sections = await Section.find({ assignedPrinterId: printerId }).sort({ name: 1 });
+        res.json(sections);
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
@@ -300,16 +320,27 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
         }
 
         // Resolve printer location:
-        // Priority: 1) user explicitly chose one  2) user's assigned printer  3) section's printer  4) default
-        let resolvedPrinterId = printerLocationId || '';
+        // Students: auto from section assignment
+        // Faculty: they pick a section → use that section's printer
+        let resolvedPrinterId = '';
         let locationName = 'Main Printer';
 
-        if (!resolvedPrinterId) {
-            // Auto-resolve from user or section assignment
+        if (role === 'faculty') {
+            // Faculty chose a section — use that section's printer
+            const chosenSectionId = req.body.chosenSectionId || '';
+            if (chosenSectionId) {
+                const sec = await Section.findById(chosenSectionId);
+                if (sec?.assignedPrinterId) resolvedPrinterId = sec.assignedPrinterId;
+            }
+            // Fallback: faculty's own assigned printer
+            if (!resolvedPrinterId) {
+                const facultyDoc = await User.findById(req.user.id);
+                if (facultyDoc?.assignedPrinterId) resolvedPrinterId = facultyDoc.assignedPrinterId;
+            }
+        } else {
+            // Student: auto-resolve from section
             const userDoc = await User.findById(req.user.id);
-            if (userDoc?.assignedPrinterId) {
-                resolvedPrinterId = userDoc.assignedPrinterId;
-            } else if (userDoc?.section) {
+            if (userDoc?.section) {
                 const sec = await Section.findOne({ name: userDoc.section });
                 if (sec?.assignedPrinterId) resolvedPrinterId = sec.assignedPrinterId;
             }
