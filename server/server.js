@@ -459,6 +459,49 @@ app.get('/api/student/wallet', verifyToken, async (req, res) => {
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
+// Student: their own print job history
+app.get('/api/student/jobs', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'student' && req.user.role !== 'faculty')
+            return res.status(403).json({ error: 'Unauthorized' });
+        const jobs = await PrintJob.find({ userId: req.user.id })
+            .select('-fileData').sort({ createdAt: -1 }).limit(50);
+        res.json(jobs);
+    } catch { res.status(500).json({ error: 'Error fetching jobs' }); }
+});
+
+// Student: poll status of a single job (for live tracking)
+app.get('/api/student/jobs/:jobId/status', verifyToken, async (req, res) => {
+    try {
+        const job = await PrintJob.findOne({ _id: req.params.jobId, userId: req.user.id })
+            .select('status printerLocationName fileName pages');
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        res.json(job);
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Student: get their assigned printer status
+app.get('/api/student/printer-status', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        let printerId = '';
+        if (user?.section) {
+            const sec = await Section.findOne({ name: user.section });
+            if (sec?.assignedPrinterId) printerId = sec.assignedPrinterId;
+        }
+        if (!printerId) {
+            const defaultLoc = await PrinterLocation.findOne().sort({ createdAt: 1 });
+            if (defaultLoc) {
+                return res.json({ name: defaultLoc.name, isOnline: defaultLoc.isOnline, lastSeen: defaultLoc.lastSeen });
+            }
+            return res.json({ name: 'No printer', isOnline: false });
+        }
+        const loc = await PrinterLocation.findById(printerId);
+        if (!loc) return res.json({ name: 'Unknown', isOnline: false });
+        res.json({ name: loc.name, isOnline: loc.isOnline, lastSeen: loc.lastSeen });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  ADMIN — Users
 // ════════════════════════════════════════════════════════════════════════════

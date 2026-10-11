@@ -165,6 +165,29 @@ class ApiService {
     return _handle(r);
   }
 
+  // Student: own print job history
+  static Future<List<PrintJobModel>> getMyJobs(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/jobs'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => PrintJobModel.fromJson(e)).toList();
+  }
+
+  // Student: poll single job status
+  static Future<Map<String, dynamic>> getJobStatus(String token, String jobId) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/jobs/$jobId/status'),
+        headers: _auth(token)).timeout(const Duration(seconds: 10));
+    return _handle(r);
+  }
+
+  // Student: get their assigned printer status
+  static Future<Map<String, dynamic>> getMyPrinterStatus(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/printer-status'),
+        headers: _auth(token)).timeout(const Duration(seconds: 10));
+    return _handle(r);
+  }
+
   // ── ADMIN ─────────────────────────────────────────────────────────────────
   static Future<List<UserModel>> getStudents(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/admin/students'),
