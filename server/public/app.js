@@ -898,13 +898,26 @@ function renderSections() {
     const el = document.getElementById('sectionsList');
     if (!el) return;
     if (!allSections.length) { el.innerHTML = `<div class="empty-state">No sections yet. Create one!</div>`; return; }
-    el.innerHTML = `<div class="sections-grid">${allSections.map(s=>`
+    el.innerHTML = `<div class="sections-grid">${allSections.map(s => {
+        const printer = allPrinters.find(p => p._id === s.assignedPrinterId);
+        return `
       <div class="section-card">
         <div class="section-icon" style="background:${sectionColor(s.name)}20;color:${sectionColor(s.name)}">🗂️</div>
         <div class="section-name">${s.name}</div>
-        <div class="section-count">${allStudents.filter(st=>st.section===s.name).length} students</div>
-        <button class="btn btn-sm btn-red" onclick="deleteSection('${s._id}','${s.name}')">Delete</button>
-      </div>`).join('')}
+        ${printer
+            ? `<div class="section-printer ${printer.isOnline ? 'printer-online' : 'printer-offline'}">
+                 <span class="status-dot-sm"></span> 🖨️ ${printer.name}
+               </div>`
+            : `<div class="section-printer printer-none">⚠️ No printer</div>`}
+        <div class="section-count">${allStudents.filter(st => st.section === s.name).length} students</div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-sm btn-primary" style="flex:1" onclick="showAssignSectionPrinter('${s._id}','${s.name}','${s.assignedPrinterId||''}')">
+            ${printer ? '🔄 Change Printer' : '🖨️ Assign Printer'}
+          </button>
+          <button class="btn btn-sm btn-red" onclick="deleteSection('${s._id}','${s.name}')">🗑️</button>
+        </div>
+      </div>`;
+    }).join('')}
     </div>`;
 }
 
@@ -914,6 +927,49 @@ function showCreateSection() {
     setTimeout(()=>document.getElementById('sectionNameInput').focus(),100);
 }
 function closeSectionModal() { document.getElementById('sectionModal').classList.remove('active'); }
+
+// Assign printer to section directly from sections tab
+function showAssignSectionPrinter(sectionId, sectionName, currentPrinterId) {
+    // Reuse the assign printer modal
+    _assignType = 'section';
+    _assignPrinterId = '';
+    window._assignSectionId = sectionId;
+    document.getElementById('assignPrinterTitle').textContent = `Assign Printer — ${sectionName}`;
+    document.getElementById('assignPrinterSub').textContent =
+        'All students in this section will automatically print to the selected printer.';
+    const sel = document.getElementById('assignPrinterSelect');
+    sel.innerHTML = '<option value="">— Remove printer assignment —</option>';
+    allPrinters.forEach(p => {
+        sel.innerHTML += `<option value="${p._id}" ${p._id === currentPrinterId ? 'selected' : ''}>
+            🖨️ ${p.name}${p.isOnline ? ' ✅' : ' (offline)'}
+        </option>`;
+    });
+    document.getElementById('assignPrinterModal').classList.add('active');
+}
+
+// Override doAssignPrinter to handle section direct assignment
+const _origDoAssignPrinter = window.doAssignPrinter;
+window.doAssignPrinter = async function() {
+    if (window._assignSectionId) {
+        const printerId = document.getElementById('assignPrinterSelect').value;
+        try {
+            const r = await fetch(`${API}/admin/sections/${window._assignSectionId}/assign-printer`, {
+                method:'POST', headers:authHeaders(),
+                body: JSON.stringify({ printerId })
+            });
+            const d = await r.json();
+            if (r.ok) {
+                showAlert(printerId ? 'Printer assigned to section ✅' : 'Printer assignment removed','success');
+                document.getElementById('assignPrinterModal').classList.remove('active');
+                window._assignSectionId = null;
+                await loadSections();
+                renderSections();
+            } else { showAlert(d.error||'Failed','error'); }
+        } catch { showAlert('Failed','error'); }
+    } else {
+        await _origDoAssignPrinter();
+    }
+};
 
 async function createSection() {
     const name = document.getElementById('sectionNameInput').value.trim().toUpperCase();

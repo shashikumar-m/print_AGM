@@ -265,3 +265,11 @@ a:hover { text-decoration: underline; }
 .section-select-icon { font-size: 20px; }
 .section-select-name { flex: 1; font-weight: 600; font-size: 15px; color: #1e293b; }
 .section-select-check { font-size: 16px; }
+
+/* ── Section printer status ──────────────────────────────── */
+.section-printer { font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; margin: 6px 0; display: inline-flex; align-items: center; gap: 4px; }
+.printer-online  { background: #d1fae5; color: #065f46; }
+.printer-offline { background: #f1f5f9; color: #64748b; }
+.printer-none    { background: #fef3c7; color: #92400e; }
+.status-dot-sm   { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.sections-grid   { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }

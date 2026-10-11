@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
+import '../../models/section_model.dart';
 import '../../models/printer_location_model.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
@@ -22,16 +23,25 @@ class FacultyTab extends StatefulWidget {
 
 class _FacultyTabState extends State<FacultyTab> {
   List<PrinterLocationModel> _locations = [];
+  List<SectionModel> _sections = [];
 
   @override
   void initState() {
     super.initState();
-    _loadLocations();
+    _loadData();
   }
 
-  Future<void> _loadLocations() async {
-    final locs = await ApiService.getAdminPrinterLocations(widget.token);
-    if (mounted) setState(() => _locations = locs);
+  Future<void> _loadData() async {
+    final results = await Future.wait([
+      ApiService.getAdminPrinterLocations(widget.token),
+      ApiService.getSections(),
+    ]);
+    if (mounted) {
+      setState(() {
+        _locations = results[0] as List<PrinterLocationModel>;
+        _sections  = results[1] as List<SectionModel>;
+      });
+    }
   }
 
   void _showAddFacultySheet(BuildContext context) {
@@ -40,6 +50,7 @@ class _FacultyTabState extends State<FacultyTab> {
     final passCtrl   = TextEditingController(text: 'faculty123');
     final deptCtrl   = TextEditingController();
     String? selectedLocationId;
+    String? selectedSectionName;
     bool saving = false;
 
     showModalBottomSheet(
@@ -81,7 +92,36 @@ class _FacultyTabState extends State<FacultyTab> {
                   _field(deptCtrl,  'Department',    'e.g. CSE, ECE',      Icons.business_outlined),
                   const SizedBox(height: 12),
 
-                  // Printer location assignment
+                  // ── Section assignment ──────────────────────────────────
+                  const Text('Assign Section',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                  const SizedBox(height: 8),
+                  if (_sections.isEmpty)
+                    const Text('No sections configured yet.',
+                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 13))
+                  else
+                    DropdownButtonFormField<String>(
+                      value: selectedSectionName,
+                      decoration: InputDecoration(
+                        hintText: 'Select section (optional)',
+                        prefixIcon: const Icon(Icons.category_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('No section')),
+                        ..._sections.map((s) => DropdownMenuItem(value: s.name, child: Text(s.name))),
+                      ],
+                      onChanged: (v) => setSheet(() => selectedSectionName = v),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Printer location assignment ─────────────────────────
                   const Text('Assign Printer Location',
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
                   const SizedBox(height: 8),
@@ -148,6 +188,7 @@ class _FacultyTabState extends State<FacultyTab> {
                           'password': pass,
                           'department': deptCtrl.text.trim(),
                           'printerLocationId': selectedLocationId ?? '',
+                          'assignedSection': selectedSectionName ?? '',
                         });
                         setSheet(() => saving = false);
                         if (!ctx.mounted) return;
@@ -209,7 +250,7 @@ class _FacultyTabState extends State<FacultyTab> {
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
       ),
       body: RefreshIndicator(
-        onRefresh: () async { widget.onRefresh(); await _loadLocations(); },
+        onRefresh: () async { widget.onRefresh(); await _loadData(); },
         color: AppTheme.primary,
         child: widget.faculty.isEmpty
             ? const Center(child: Column(
@@ -255,33 +296,13 @@ class _FacultyTabState extends State<FacultyTab> {
                           Text(f.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textPrimary)),
                           Text(f.email, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                           const SizedBox(height: 4),
-                          Row(children: [
-                            if (f.department.isNotEmpty) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(f.department,
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF7C3AED))),
-                              ),
-                              const SizedBox(width: 6),
-                            ],
+                          Wrap(spacing: 6, runSpacing: 4, children: [
+                            if (f.department.isNotEmpty)
+                              _badge(f.department, const Color(0xFF7C3AED)),
+                            if (f.assignedSection.isNotEmpty)
+                              _badge('Section: ${f.assignedSection}', AppTheme.accent),
                             if (assignedLoc != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.success.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  const Icon(Icons.print_rounded, size: 10, color: AppTheme.success),
-                                  const SizedBox(width: 3),
-                                  Text(assignedLoc.name,
-                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.success)),
-                                ]),
-                              ),
+                              _badgeIcon(assignedLoc.name, Icons.print_rounded, AppTheme.success),
                           ]),
                         ],
                       )),
@@ -300,4 +321,26 @@ class _FacultyTabState extends State<FacultyTab> {
       ),
     );
   }
+
+  Widget _badge(String label, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+  );
+
+  Widget _badgeIcon(String label, IconData icon, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 10, color: color),
+      const SizedBox(width: 3),
+      Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+    ]),
+  );
 }
