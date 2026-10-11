@@ -273,3 +273,30 @@ a:hover { text-decoration: underline; }
 .printer-none    { background: #fef3c7; color: #92400e; }
 .status-dot-sm   { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
 .sections-grid   { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+
+/* ── New feature styles ────────────────────────────────────── */
+
+/* Action cards on student dashboard */
+.action-card {
+  background: white; border-radius: 14px; border: 1px solid #e2e8f0;
+  padding: 16px 12px; text-align: center; cursor: pointer;
+  transition: all .15s ease; box-shadow: 0 2px 6px rgba(0,0,0,.04);
+}
+.action-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.08); }
+.action-icon { font-size: 28px; width: 52px; height: 52px; border-radius: 14px; display: flex;
+  align-items: center; justify-content: center; margin: 0 auto 10px; }
+.action-label { font-size: 13px; font-weight: 600; color: #1e293b; }
+
+/* Live job progress animation */
+@keyframes progressPulse {
+  0%   { opacity: 1; }
+  50%  { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+/* Warn button */
+.btn-warn { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+.btn-warn:hover { background: #fef3c7; }
+
+/* Stats grid responsive */
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }

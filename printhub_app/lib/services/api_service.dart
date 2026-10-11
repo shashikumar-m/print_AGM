@@ -238,6 +238,45 @@ class ApiService {
     return _handle(r);
   }
 
+  // Admin: delete a user (student or faculty)
+  static Future<Map<String, dynamic>> deleteUser(String token, String userId) async {
+    final r = await http.delete(Uri.parse('$baseUrl/api/admin/users/$userId'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  // Admin: dashboard stats
+  static Future<Map<String, dynamic>> getAdminStats(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/admin/stats'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  // Admin: printer queue
+  static Future<List<dynamic>> getPrinterQueue(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/admin/printer-queue'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    return jsonDecode(r.body) as List;
+  }
+
+  // Change password (student/faculty/admin)
+  static Future<Map<String, dynamic>> changePassword(
+      String token, String currentPassword, String newPassword) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/auth/change-password'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'currentPassword': currentPassword, 'newPassword': newPassword}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  // Student: get queue position for active job
+  static Future<Map<String, dynamic>> getQueuePosition(String token, String jobId) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/queue-position/$jobId'),
+        headers: _auth(token)).timeout(const Duration(seconds: 10));
+    return _handle(r);
+  }
+
   // ── SETTINGS ──────────────────────────────────────────────────────────────
   static Future<SettingsModel> getSettings() async {
     final r = await http.get(Uri.parse('$baseUrl/api/settings'))

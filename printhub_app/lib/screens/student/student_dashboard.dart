@@ -34,6 +34,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
   PrintJobModel? _activeJob;
   Timer?         _jobPollTimer;
   Timer?         _printerPollTimer;
+  int            _queuePosition = 0;
+  int            _queueTotal    = 0;
 
   @override
   void initState() {
@@ -104,23 +106,34 @@ class _StudentDashboardState extends State<StudentDashboard> {
     _jobPollTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
       if (_activeJob == null) { _jobPollTimer?.cancel(); return; }
       try {
-        final data = await ApiService.getJobStatus(_token!, _activeJob!.id);
+        final results = await Future.wait([
+          ApiService.getJobStatus(_token!, _activeJob!.id),
+          if (_activeJob!.isPending) ApiService.getQueuePosition(_token!, _activeJob!.id)
+              else Future.value(<String, dynamic>{}),
+        ]);
         if (!mounted) return;
+        final data = results[0] as Map<String, dynamic>;
+        final qData = results[1] as Map<String, dynamic>;
         final newStatus = data['status'] ?? _activeJob!.status;
-        setState(() => _activeJob = PrintJobModel(
-          id: _activeJob!.id,
-          fileName: data['fileName'] ?? _activeJob!.fileName,
-          pages: data['pages'] ?? _activeJob!.pages,
-          cost: _activeJob!.cost,
-          status: newStatus,
-          duplex: _activeJob!.duplex,
-          printerLocationName: data['printerLocationName'] ?? _activeJob!.printerLocationName,
-          createdAt: _activeJob!.createdAt,
-          studentName: _activeJob!.studentName,
-        ));
+        setState(() {
+          _activeJob = PrintJobModel(
+            id: _activeJob!.id,
+            fileName: data['fileName'] ?? _activeJob!.fileName,
+            pages: data['pages'] ?? _activeJob!.pages,
+            cost: _activeJob!.cost,
+            status: newStatus,
+            duplex: _activeJob!.duplex,
+            printerLocationName: data['printerLocationName'] ?? _activeJob!.printerLocationName,
+            createdAt: _activeJob!.createdAt,
+            studentName: _activeJob!.studentName,
+          );
+          if (qData['position'] != null) {
+            _queuePosition = qData['position'] ?? 0;
+            _queueTotal    = qData['total']    ?? 0;
+          }
+        });
         if (newStatus == 'completed' || newStatus == 'failed') {
           _jobPollTimer?.cancel();
-          // Refresh wallet after completion
           if (newStatus == 'completed') {
             final w = await ApiService.getWallet(_token!);
             if (mounted) setState(() => _wallet = (w['wallet'] ?? _wallet).toDouble());
@@ -128,6 +141,138 @@ class _StudentDashboardState extends State<StudentDashboard> {
         }
       } catch (_) {}
     });
+  }
+
+  void _showChangePassword(BuildContext context) {
+    final currentCtrl = TextEditingController();
+    final newCtrl     = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool saving = false;
+    bool showCurrent = false;
+    bool showNew     = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const Expanded(child: Text('Change Password',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary))),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ]),
+                const SizedBox(height: 16),
+                // Current password
+                TextField(
+                  controller: currentCtrl,
+                  obscureText: !showCurrent,
+                  decoration: InputDecoration(
+                    labelText: 'Current Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(showCurrent ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                      onPressed: () => setSheet(() => showCurrent = !showCurrent),
+                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // New password
+                TextField(
+                  controller: newCtrl,
+                  obscureText: !showNew,
+                  decoration: InputDecoration(
+                    labelText: 'New Password',
+                    prefixIcon: const Icon(Icons.lock_rounded),
+                    suffixIcon: IconButton(
+                      icon: Icon(showNew ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                      onPressed: () => setSheet(() => showNew = !showNew),
+                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Confirm password
+                TextField(
+                  controller: confirmCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Confirm New Password',
+                    prefixIcon: const Icon(Icons.lock_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: saving ? null : () async {
+                      final cur  = currentCtrl.text;
+                      final nw   = newCtrl.text;
+                      final conf = confirmCtrl.text;
+                      if (cur.isEmpty || nw.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Fill all fields'), backgroundColor: AppTheme.error));
+                        return;
+                      }
+                      if (nw.length < 6) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('New password must be at least 6 characters'), backgroundColor: AppTheme.error));
+                        return;
+                      }
+                      if (nw != conf) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Passwords do not match'), backgroundColor: AppTheme.error));
+                        return;
+                      }
+                      setSheet(() => saving = true);
+                      final result = await ApiService.changePassword(_token!, cur, nw);
+                      setSheet(() => saving = false);
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(result['error'] ?? 'Password changed successfully!'),
+                        backgroundColor: result['error'] != null ? AppTheme.error : AppTheme.success,
+                      ));
+                    },
+                    child: saving
+                        ? const SizedBox(width: 22, height: 22,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                        : const Text('Update Password', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -228,9 +373,13 @@ class _StudentDashboardState extends State<StudentDashboard> {
                               isFaculty: widget.isFaculty),
                           const SizedBox(height: 16),
 
-                          // ── Active job live tracker ────────────────────
+                          // Active job live tracker ────────────────────
                           if (_activeJob != null) ...[
-                            _LiveJobCard(job: _activeJob!),
+                            _LiveJobCard(
+                              job: _activeJob!,
+                              queuePosition: _queuePosition,
+                              queueTotal: _queueTotal,
+                            ),
                             const SizedBox(height: 16),
                           ],
 
@@ -282,6 +431,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
                                 builder: (_) => PrintHistoryScreen(token: _token!),
                               ),
                             ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Change Password
+                          _ActionCard(
+                            icon: Icons.lock_outline_rounded,
+                            title: 'Change Password',
+                            subtitle: 'Update your account password',
+                            color: const Color(0xFF7C3AED),
+                            onTap: () => _showChangePassword(context),
                           ),
                           const SizedBox(height: 12),
 
@@ -372,7 +531,9 @@ class _PrinterStatusBanner extends StatelessWidget {
 // ── Live Job Tracker Card ─────────────────────────────────────────────────────
 class _LiveJobCard extends StatelessWidget {
   final PrintJobModel job;
-  const _LiveJobCard({required this.job});
+  final int queuePosition;
+  final int queueTotal;
+  const _LiveJobCard({required this.job, this.queuePosition = 0, this.queueTotal = 0});
 
   Color get _color {
     if (job.isPrinting) return AppTheme.primary;
@@ -392,6 +553,8 @@ class _LiveJobCard extends StatelessWidget {
     if (job.isPrinting)  return '${job.fileName} is being printed';
     if (job.isCompleted) return '${job.fileName} is ready';
     if (job.isFailed)    return 'Something went wrong — try again';
+    // Pending — show queue position
+    if (queuePosition > 0) return 'Position #$queuePosition of $queueTotal in queue';
     return '${job.fileName} — ${job.pages} pages';
   }
 

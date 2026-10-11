@@ -327,44 +327,89 @@ class _FacultyTabState extends State<FacultyTab> {
                           ),
                         ]),
                         const SizedBox(height: 10),
-                        // Assign section button
-                        GestureDetector(
-                          onTap: () => _showAssignSectionSheet(context, f),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: f.assignedSection.isEmpty
-                                  ? AppTheme.warning.withValues(alpha: 0.08)
-                                  : AppTheme.accent.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: f.assignedSection.isEmpty
-                                    ? AppTheme.warning.withValues(alpha: 0.4)
-                                    : AppTheme.accent.withValues(alpha: 0.4),
+                        // Action buttons row
+                        Row(children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _showAssignSectionSheet(context, f),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: f.assignedSection.isEmpty
+                                      ? AppTheme.warning.withValues(alpha: 0.08)
+                                      : AppTheme.accent.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: f.assignedSection.isEmpty
+                                        ? AppTheme.warning.withValues(alpha: 0.4)
+                                        : AppTheme.accent.withValues(alpha: 0.4),
+                                  ),
+                                ),
+                                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                  Icon(Icons.category_outlined, size: 14,
+                                      color: f.assignedSection.isEmpty ? AppTheme.warning : AppTheme.accent),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    f.assignedSection.isEmpty
+                                        ? 'Assign section'
+                                        : f.assignedSection,
+                                    style: TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w600,
+                                      color: f.assignedSection.isEmpty ? AppTheme.warning : AppTheme.accent,
+                                    ),
+                                  ),
+                                ]),
                               ),
                             ),
-                            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Icon(Icons.category_outlined, size: 14,
-                                  color: f.assignedSection.isEmpty ? AppTheme.warning : AppTheme.accent),
-                              const SizedBox(width: 6),
-                              Text(
-                                f.assignedSection.isEmpty
-                                    ? 'Tap to assign section'
-                                    : 'Change section (${f.assignedSection})',
-                                style: TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w600,
-                                  color: f.assignedSection.isEmpty ? AppTheme.warning : AppTheme.accent,
-                                ),
-                              ),
-                            ]),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => _confirmDeleteFaculty(context, f),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppTheme.error.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
+                              ),
+                              child: const Text('Delete',
+                                  style: TextStyle(color: AppTheme.error, fontSize: 12, fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        ]),
                       ],
                     ),
                   );
                 },
               ),
+      ),
+    );
+  }
+
+  void _confirmDeleteFaculty(BuildContext context, UserModel faculty) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Faculty'),
+        content: Text('Delete "${faculty.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () async {
+              Navigator.pop(context);
+              final data = await ApiService.deleteUser(widget.token, faculty.id);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(data['error'] ?? 'Faculty deleted'),
+                backgroundColor: data['error'] != null ? AppTheme.error : AppTheme.success,
+              ));
+              if (data['error'] == null) widget.onRefresh();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }

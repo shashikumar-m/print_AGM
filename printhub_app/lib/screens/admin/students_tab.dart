@@ -347,6 +347,37 @@ class _StudentCard extends StatelessWidget {
     required this.onUpdated,
   });
 
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Student'),
+        content: Text('Delete "${student.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () async {
+              Navigator.pop(context);
+              final data = await ApiService.deleteUser(token, student.id);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(data['error'] ?? 'Student deleted'),
+                backgroundColor: data['error'] != null ? AppTheme.error : AppTheme.success,
+              ));
+              if (data['error'] == null) onUpdated();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAddFunds(BuildContext context) {
     final ctrl = TextEditingController();
     showModalBottomSheet(
@@ -495,7 +526,7 @@ class _StudentCard extends StatelessWidget {
             ),
           ),
 
-          // Wallet + add funds
+          // Wallet + add funds + delete
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -512,6 +543,19 @@ class _StudentCard extends StatelessWidget {
                   ),
                   child: const Text('+ Funds',
                       style: TextStyle(color: AppTheme.success, fontSize: 12, fontWeight: FontWeight.w600)),
+                ),
+              ),
+              const SizedBox(height: 4),
+              GestureDetector(
+                onTap: () => _confirmDelete(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text('Delete',
+                      style: TextStyle(color: AppTheme.error, fontSize: 12, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],

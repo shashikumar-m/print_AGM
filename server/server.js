@@ -559,6 +559,118 @@ app.get('/api/admin/print-jobs', verifyToken, requireAdmin, async (req, res) => 
     catch { res.status(500).json({ error: 'Error' }); }
 });
 
+// Admin: delete a student or faculty user
+app.delete('/api/admin/users/:id', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (user.role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
+        await User.findByIdAndDelete(req.params.id);
+        res.json({ message: `${user.role} deleted` });
+    } catch { res.status(500).json({ error: 'Error deleting user' }); }
+});
+
+// Admin: dashboard stats
+app.get('/api/admin/stats', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const [
+            totalStudents, totalFaculty,
+            totalJobs, jobsToday,
+            pendingJobs, printingJobs,
+            completedJobs, failedJobs,
+            printers
+        ] = await Promise.all([
+            User.countDocuments({ role: 'student' }),
+            User.countDocuments({ role: 'faculty' }),
+            PrintJob.countDocuments(),
+            PrintJob.countDocuments({ createdAt: { $gte: today } }),
+            PrintJob.countDocuments({ status: 'pending' }),
+            PrintJob.countDocuments({ status: 'printing' }),
+            PrintJob.countDocuments({ status: 'completed' }),
+            PrintJob.countDocuments({ status: 'failed' }),
+            PrinterLocation.find().select('name isOnline'),
+        ]);
+        // Revenue and pages
+        const revenueAgg = await PrintJob.aggregate([
+            { $match: { status: 'completed' } },
+            { $group: { _id: null, total: { $sum: '$cost' }, pages: { $sum: '$pages' } } }
+        ]);
+        const todayRevenueAgg = await PrintJob.aggregate([
+            { $match: { status: 'completed', createdAt: { $gte: today } } },
+            { $group: { _id: null, total: { $sum: '$cost' }, pages: { $sum: '$pages' } } }
+        ]);
+        res.json({
+            totalStudents, totalFaculty,
+            totalJobs, jobsToday,
+            pendingJobs, printingJobs,
+            completedJobs, failedJobs,
+            totalRevenue:   revenueAgg[0]?.total   || 0,
+            totalPages:     revenueAgg[0]?.pages    || 0,
+            todayRevenue:   todayRevenueAgg[0]?.total || 0,
+            todayPages:     todayRevenueAgg[0]?.pages || 0,
+            printers: printers.map(p => ({ name: p.name, isOnline: p.isOnline })),
+        });
+    } catch(e) { res.status(500).json({ error: 'Error fetching stats' }); }
+});
+
+// Admin: printer queue — pending + printing jobs grouped by printer
+app.get('/api/admin/printer-queue', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const jobs = await PrintJob.find({ status: { $in: ['pending','printing'] } })
+            .select('-fileData').sort({ createdAt: 1 });
+        const printers = await PrinterLocation.find().select('name isOnline');
+        const queue = printers.map(p => ({
+            printerId: p._id,
+            printerName: p.name,
+            isOnline: p.isOnline,
+            pending:  jobs.filter(j => j.printerLocationId === p._id.toString() && j.status === 'pending').length,
+            printing: jobs.filter(j => j.printerLocationId === p._id.toString() && j.status === 'printing').length,
+            jobs: jobs.filter(j => j.printerLocationId === p._id.toString())
+                .map(j => ({ id: j._id, fileName: j.fileName, pages: j.pages, status: j.status,
+                             userName: j.userName, userSection: j.userSection, createdAt: j.createdAt })),
+        }));
+        res.json(queue);
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Student/faculty: change password
+app.post('/api/auth/change-password', verifyToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword || newPassword.length < 6)
+            return res.status(400).json({ error: 'New password must be at least 6 characters' });
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (!bcrypt.compareSync(currentPassword, user.password))
+            return res.status(401).json({ error: 'Current password is incorrect' });
+        user.password = bcrypt.hashSync(newPassword, 10);
+        await user.save();
+        res.json({ message: 'Password changed successfully' });
+    } catch { res.status(500).json({ error: 'Error changing password' }); }
+});
+
+// Student: queue position for their active job
+app.get('/api/student/queue-position/:jobId', verifyToken, async (req, res) => {
+    try {
+        const job = await PrintJob.findOne({ _id: req.params.jobId, userId: req.user.id });
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'pending' && job.status !== 'printing')
+            return res.json({ position: 0, total: 0, status: job.status });
+        // Count how many pending jobs for the same printer were created before this one
+        const position = await PrintJob.countDocuments({
+            printerLocationId: job.printerLocationId,
+            status: { $in: ['pending','printing'] },
+            createdAt: { $lt: job.createdAt }
+        });
+        const total = await PrintJob.countDocuments({
+            printerLocationId: job.printerLocationId,
+            status: { $in: ['pending','printing'] }
+        });
+        res.json({ position: position + 1, total, status: job.status });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  SETTINGS
 // ════════════════════════════════════════════════════════════════════════════
