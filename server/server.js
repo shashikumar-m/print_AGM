@@ -42,6 +42,7 @@ const userSchema = new mongoose.Schema({
     wallet:     { type: Number, default: 0 },
     isFaculty:  { type: Boolean, default: false },
     assignedPrinterId: String,   // override printer for this specific user
+    assignedSection:   String,   // faculty's assigned section (to see its students)
     createdAt:  { type: Date, default: Date.now }
 });
 
@@ -245,6 +246,18 @@ app.post('/api/admin/users/:id/assign-printer', verifyToken, requireAdmin, async
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
+// Admin: assign a section to an existing faculty member
+app.post('/api/admin/users/:id/assign-section', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const { sectionName } = req.body;
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (user.role !== 'faculty') return res.status(400).json({ error: 'Can only assign section to faculty' });
+        await User.findByIdAndUpdate(req.params.id, { assignedSection: sectionName || '' });
+        res.json({ message: 'Section assigned to faculty', assignedSection: sectionName });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
 // Get sections that have a specific printer assigned (for faculty upload screen)
 app.get('/api/faculty/sections-for-printer', verifyToken, async (req, res) => {
     try {
@@ -260,6 +273,48 @@ app.get('/api/faculty/sections-for-printer', verifyToken, async (req, res) => {
         const sections = await Section.find({ assignedPrinterId: printerId }).sort({ name: 1 });
         res.json(sections);
     } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Faculty: get students in their assigned section
+// Faculty: get own profile (debug — shows what section is assigned)
+app.get('/api/faculty/me', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'faculty') return res.status(403).json({ error: 'Unauthorized' });
+        const faculty = await User.findById(req.user.id).select('-password');
+        res.json(faculty);
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+app.get('/api/faculty/my-students', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'faculty') return res.status(403).json({ error: 'Unauthorized' });
+        const faculty = await User.findById(req.user.id);
+        const assignedSection = faculty?.assignedSection || '';
+        console.log(`[my-students] faculty=${faculty?.email}, assignedSection="${assignedSection}"`);
+        if (!assignedSection) return res.json([]);
+        const students = await User.find({ role: 'student', section: assignedSection })
+            .select('-password').sort({ name: 1 });
+        console.log(`[my-students] found ${students.length} students in section "${assignedSection}"`);
+        res.json(students);
+    } catch { res.status(500).json({ error: 'Error fetching students' }); }
+});
+
+// Faculty: add funds to a student in their section
+app.post('/api/faculty/add-wallet', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'faculty') return res.status(403).json({ error: 'Unauthorized' });
+        const { studentId, amount } = req.body;
+        if (!studentId || !amount || amount <= 0) return res.status(400).json({ error: 'Invalid request' });
+        const faculty = await User.findById(req.user.id);
+        const assignedSection = faculty?.assignedSection || '';
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ error: 'Student not found' });
+        if (assignedSection && student.section !== assignedSection)
+            return res.status(403).json({ error: 'Student is not in your section' });
+        student.wallet += parseInt(amount);
+        await student.save();
+        res.json({ message: 'Wallet updated', wallet: student.wallet });
+    } catch { res.status(500).json({ error: 'Error updating wallet' }); }
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -429,7 +484,7 @@ app.get('/api/admin/faculty', verifyToken, requireAdmin, async (req, res) => {
 
 app.post('/api/admin/faculty', verifyToken, requireAdmin, async (req, res) => {
     try {
-        const { name, email, password, department, printerLocationId } = req.body;
+        const { name, email, password, department, printerLocationId, assignedSection } = req.body;
         if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password required' });
         if (await User.findOne({ email })) return res.status(400).json({ error: 'Email already exists' });
         const f = await new User({
@@ -437,9 +492,11 @@ app.post('/api/admin/faculty', verifyToken, requireAdmin, async (req, res) => {
             role:'faculty', name,
             department: department || '',
             section: printerLocationId || '',  // reuse section field to store assigned printer
+            assignedPrinterId: printerLocationId || '',
+            assignedSection: assignedSection || '',
             wallet: 0, isFaculty: true
         }).save();
-        res.json({ message:'Faculty created', faculty:{ id:f._id, name:f.name, email:f.email, department:f.department } });
+        res.json({ message:'Faculty created', faculty:{ id:f._id, name:f.name, email:f.email, department:f.department, assignedSection: f.assignedSection } });
     } catch { res.status(500).json({ error: 'Error creating faculty' }); }
 });
 

@@ -83,6 +83,17 @@ class ApiService {
     return _handle(r);
   }
 
+  // Admin: assign section to an existing faculty member
+  static Future<Map<String, dynamic>> assignSectionToFaculty(
+      String token, String userId, String sectionName) async {
+    final r = await http.post(
+        Uri.parse('$baseUrl/api/admin/users/$userId/assign-section'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'sectionName': sectionName}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
   // ── SECTIONS ──────────────────────────────────────────────────────────────
   static Future<List<SectionModel>> getSections() async {
     final r = await http.get(Uri.parse('$baseUrl/api/sections'))
@@ -99,6 +110,25 @@ class ApiService {
     if (r.statusCode != 200) return [];
     final List list = jsonDecode(r.body);
     return list.map((e) => SectionModel.fromJson(e)).toList();
+  }
+
+  // Faculty: get students in their assigned section
+  static Future<List<UserModel>> getFacultyStudents(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/faculty/my-students'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => UserModel.fromJson(e)).toList();
+  }
+
+  // Faculty: add funds to a student in their section
+  static Future<Map<String, dynamic>> facultyAddWallet(
+      String token, String studentId, int amount) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/faculty/add-wallet'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'studentId': studentId, 'amount': amount}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
   }
 
   static Future<Map<String, dynamic>> createSection(String token, String name) async {
