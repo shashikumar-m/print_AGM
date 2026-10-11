@@ -8,7 +8,6 @@ import '../../widgets/custom_text_field.dart';
 import '../../widgets/loading_button.dart';
 import '../student/student_dashboard.dart';
 import '../admin/admin_dashboard.dart';
-import '../faculty/faculty_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -69,11 +68,9 @@ class _LoginScreenState extends State<LoginScreen>
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) {
-            if (user.isAdmin) return const AdminDashboard();
-            if (user.isFaculty) return const FacultyDashboard();
-            return const StudentDashboard(isFaculty: false);
-          },
+          builder: (_) => user.isAdmin
+              ? const AdminDashboard()
+              : StudentDashboard(isFaculty: user.isFaculty),
         ),
       );
     } on TimeoutException {

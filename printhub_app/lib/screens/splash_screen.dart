@@ -4,7 +4,6 @@ import '../models/user_model.dart';
 import 'auth/login_screen.dart';
 import 'student/student_dashboard.dart';
 import 'admin/admin_dashboard.dart';
-import 'faculty/faculty_dashboard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -72,11 +71,9 @@ class _SplashScreenState extends State<SplashScreen>
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) {
-          if (user.isAdmin) return const AdminDashboard();
-          if (user.isFaculty) return const FacultyDashboard();
-          return StudentDashboard(isFaculty: false);
-        },
+        pageBuilder: (_, __, ___) => user.isAdmin
+            ? const AdminDashboard()
+            : StudentDashboard(isFaculty: user.isFaculty),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
         transitionDuration: const Duration(milliseconds: 500),
