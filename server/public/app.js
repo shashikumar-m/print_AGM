@@ -645,6 +645,12 @@ async function showAdminDashboard() {
             <option value="">— Select printer —</option>
           </select>
         </div>
+        <div class="form-group">
+          <label>Assign Section</label>
+          <select id="addFacultySection">
+            <option value="">— No section —</option>
+          </select>
+        </div>
         <button class="btn btn-primary" onclick="createFaculty()">Add Faculty</button>
       </div>
     </div>
@@ -1171,9 +1177,12 @@ function renderFaculty() {
         return;
     }
     el.innerHTML = `<table class="data-table">
-      <thead><tr><th>Name</th><th>Department</th><th>Email</th><th>Printer</th><th>Action</th></tr></thead>
+      <thead><tr><th>Name</th><th>Department</th><th>Email</th><th>Section</th><th>Printer</th><th>Actions</th></tr></thead>
       <tbody>${allFaculty.map(f => {
         const printer = allPrinters.find(p => p._id === f.assignedPrinterId);
+        const sectionBadge = f.assignedSection
+            ? `<span class="sec-tag" style="background:#e0f2fe;color:#0369a1">📚 ${f.assignedSection}</span>`
+            : `<button class="btn btn-sm btn-warn" onclick="openAssignSectionModal('${f._id}','${f.name}','')">⚠️ Assign</button>`;
         return `<tr>
           <td><div class="student-name-cell">
             <div class="avatar" style="background:#7c3aed">${f.name[0]?.toUpperCase()||'?'}</div>
@@ -1181,11 +1190,15 @@ function renderFaculty() {
           </div></td>
           <td>${f.department ? `<span class="sec-tag" style="background:#ede9fe;color:#7c3aed">${f.department}</span>` : '—'}</td>
           <td class="muted">${f.email}</td>
+          <td>${sectionBadge}</td>
           <td>${printer
             ? `<span class="sec-tag" style="background:#d1fae5;color:#065f46">🖨️ ${printer.name}</span>`
             : '<span class="muted">Not assigned</span>'}</td>
-          <td>
-            <button class="btn btn-sm" onclick="openAssignUserPrinter('${f._id}','${f.name}')">Assign Printer</button>
+          <td style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm" onclick="openAssignSectionModal('${f._id}','${f.name}','${f.assignedSection||''}')">
+              ${f.assignedSection ? '🔄 Section' : '📚 Section'}
+            </button>
+            <button class="btn btn-sm" onclick="openAssignUserPrinter('${f._id}','${f.name}')">🖨️ Printer</button>
           </td>
         </tr>`;
       }).join('')}
@@ -1240,6 +1253,12 @@ function showAddFacultyModal() {
     const sel = document.getElementById('addFacultyPrinter');
     sel.innerHTML = '<option value="">— Select printer —</option>';
     allPrinters.forEach(p => sel.innerHTML += `<option value="${p._id}">🖨️ ${p.name}</option>`);
+    // Populate section dropdown
+    const secSel = document.getElementById('addFacultySection');
+    if (secSel) {
+        secSel.innerHTML = '<option value="">— No section —</option>';
+        allSections.forEach(s => secSel.innerHTML += `<option value="${s.name}">${s.name}</option>`);
+    }
     document.getElementById('addFacultyModal').classList.add('active');
     setTimeout(() => document.getElementById('addFacultyName').focus(), 100);
 }
@@ -1250,18 +1269,71 @@ async function createFaculty() {
     const password = document.getElementById('addFacultyPass').value;
     const dept     = document.getElementById('addFacultyDept').value.trim();
     const printer  = document.getElementById('addFacultyPrinter').value;
+    const section  = document.getElementById('addFacultySection')?.value || '';
     if (!name || !email || password.length < 6) {
         showAlert('Fill all required fields (password min 6 chars)','error'); return;
     }
     try {
         const r = await fetch(API+'/admin/faculty', {
             method:'POST', headers:authHeaders(),
-            body: JSON.stringify({ name, email, password, department:dept, printerLocationId:printer })
+            body: JSON.stringify({ name, email, password, department:dept, printerLocationId:printer, assignedSection:section })
         });
         const d = await r.json();
         if (r.ok) {
             showAlert(`Faculty "${name}" added`,'success');
             document.getElementById('addFacultyModal').classList.remove('active');
+            await loadFaculty();
+        } else { showAlert(d.error||'Failed','error'); }
+    } catch { showAlert('Failed','error'); }
+}
+
+// Assign section to existing faculty
+function openAssignSectionModal(userId, userName, currentSection) {
+    window._assignSectionUserId = userId;
+    // Build a quick inline modal
+    const existing = document.getElementById('assignSectionModal');
+    if (existing) existing.remove();
+
+    const opts = allSections.map(s =>
+        `<option value="${s.name}" ${s.name === currentSection ? 'selected' : ''}>${s.name}</option>`
+    ).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'assignSectionModal';
+    modal.className = 'modal active';
+    modal.innerHTML = `
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Assign Section — ${userName}</h3>
+          <button class="modal-close" onclick="document.getElementById('assignSectionModal').remove()">✕</button>
+        </div>
+        <p class="modal-sub">Students in this section will appear on the faculty's dashboard.</p>
+        <div class="form-group">
+          <label>Section</label>
+          <select id="assignSectionSelect">
+            <option value="">— Remove section —</option>
+            ${opts}
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="doAssignSection()">Save</button>
+      </div>`;
+    document.body.appendChild(modal);
+}
+
+async function doAssignSection() {
+    const sectionName = document.getElementById('assignSectionSelect').value;
+    const userId = window._assignSectionUserId;
+    if (!userId) return;
+    try {
+        const r = await fetch(`${API}/admin/users/${userId}/assign-section`, {
+            method:'POST', headers:authHeaders(),
+            body: JSON.stringify({ sectionName })
+        });
+        const d = await r.json();
+        if (r.ok) {
+            showAlert(sectionName ? `Section "${sectionName}" assigned ✅` : 'Section removed','success');
+            document.getElementById('assignSectionModal')?.remove();
+            window._assignSectionUserId = null;
             await loadFaculty();
         } else { showAlert(d.error||'Failed','error'); }
     } catch { showAlert('Failed','error'); }
