@@ -7,6 +7,7 @@ class UserModel {
   final String department;
   final double wallet;
   final String assignedSection;
+  final String usn; // University Serial Number / Roll Number
 
   const UserModel({
     required this.id,
@@ -17,6 +18,7 @@ class UserModel {
     this.department = '',
     this.wallet = 0,
     this.assignedSection = '',
+    this.usn = '',
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
@@ -28,13 +30,14 @@ class UserModel {
         department:      json['department']      ?? '',
         wallet:          (json['wallet']         ?? 0).toDouble(),
         assignedSection: json['assignedSection'] ?? '',
+        usn:             json['usn']             ?? '',
       );
 
   Map<String, dynamic> toJson() => {
         'id': id, 'email': email, 'name': name,
         'role': role, 'section': section,
         'department': department, 'wallet': wallet,
-        'assignedSection': assignedSection,
+        'assignedSection': assignedSection, 'usn': usn,
       };
 
   bool get isAdmin   => role == 'admin';

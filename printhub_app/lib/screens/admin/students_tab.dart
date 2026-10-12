@@ -206,6 +206,7 @@ class _StudentsTabState extends State<StudentsTab> {
     final emailCtrl  = TextEditingController();
     final passCtrl   = TextEditingController(text: 'student123');
     final walletCtrl = TextEditingController(text: '0');
+    final usnCtrl    = TextEditingController();
     String? selectedSection;
     bool saving = false;
 
@@ -240,9 +241,13 @@ class _StudentsTabState extends State<StudentsTab> {
                   const SizedBox(height: 16),
                   _sheetField(nameCtrl,  'Full Name *',  'Student full name',  Icons.person_outline),
                   const SizedBox(height: 12),
+                  _sheetField(usnCtrl,   'USN / Roll No','e.g. 1AG22CS001',    Icons.badge_outlined),
+                  const SizedBox(height: 12),
                   _sheetField(emailCtrl, 'Email *',      'student@email.com',  Icons.email_outlined, type: TextInputType.emailAddress),
                   const SizedBox(height: 12),
                   _sheetField(passCtrl,  'Password *',   'Min 6 characters',   Icons.lock_outline,   obscure: true),
+                  const SizedBox(height: 12),
+                  _sheetField(TextEditingController(), 'USN / Roll No', 'e.g. 1AG22CS001', Icons.badge_outlined),
                   const SizedBox(height: 12),
                   // Section dropdown
                   DropdownButtonFormField<String>(
@@ -286,6 +291,7 @@ class _StudentsTabState extends State<StudentsTab> {
                         final data = await ApiService.createStudent(widget.token, {
                           'name': name, 'email': email, 'password': pass,
                           'section': selectedSection ?? '', 'wallet': wallet,
+                          'usn': usnCtrl.text.trim(),
                         });
                         setSheetState(() => saving = false);
                         if (!ctx.mounted) return;
@@ -521,6 +527,16 @@ class _StudentCard extends StatelessWidget {
                     child: Text(student.section,
                         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: sectionColor)),
                   ),
+                ],
+                if (student.usn.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Row(children: [
+                    const Icon(Icons.badge_outlined, size: 11, color: AppTheme.textSecondary),
+                    const SizedBox(width: 3),
+                    Text(student.usn,
+                        style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary,
+                            fontWeight: FontWeight.w500)),
+                  ]),
                 ],
               ],
             ),

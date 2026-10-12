@@ -33,17 +33,18 @@ mongoose.connect(MONGODB_URI)
 //  SCHEMAS
 // ════════════════════════════════════════════════════════════════════════════
 const userSchema = new mongoose.Schema({
-    email:      { type: String, unique: true, required: true },
-    password:   { type: String, required: true },
-    role:       { type: String, enum: ['admin', 'student', 'faculty'], default: 'student' },
-    name:       String,
-    section:    String,
-    department: String,
-    wallet:     { type: Number, default: 0 },
-    isFaculty:  { type: Boolean, default: false },
-    assignedPrinterId: String,   // override printer for this specific user
-    assignedSection:   String,   // faculty's assigned section (to see its students)
-    createdAt:  { type: Date, default: Date.now }
+    email:             { type: String, unique: true, required: true },
+    password:          { type: String, required: true },
+    role:              { type: String, enum: ['admin', 'student', 'faculty'], default: 'student' },
+    name:              String,
+    usn:               { type: String, default: '' }, // University Serial Number / Roll Number
+    section:           String,
+    department:        String,
+    wallet:            { type: Number, default: 0 },
+    isFaculty:         { type: Boolean, default: false },
+    assignedPrinterId: String,
+    assignedSection:   String,
+    createdAt:         { type: Date, default: Date.now }
 });
 
 const sectionSchema = new mongoose.Schema({
@@ -54,12 +55,13 @@ const sectionSchema = new mongoose.Schema({
 
 // Printer Location — each physical printer in the college
 const printerLocationSchema = new mongoose.Schema({
-    name:        { type: String, required: true },  // e.g. "HOD Room", "Lab 1", "Library"
-    description: String,                             // e.g. "Ground floor, near reception"
-    agentKey:    { type: String, required: true, unique: true }, // secret key for that PC's agent
-    isOnline:    { type: Boolean, default: false },  // updated by agent heartbeat
-    lastSeen:    Date,
-    createdAt:   { type: Date, default: Date.now }
+    name:            { type: String, required: true },
+    description:     String,
+    agentKey:        { type: String, required: true, unique: true },
+    isOnline:        { type: Boolean, default: false },
+    maintenanceMode: { type: Boolean, default: false }, // admin can block all new jobs
+    lastSeen:        Date,
+    createdAt:       { type: Date, default: Date.now }
 });
 
 const settingsSchema = new mongoose.Schema({
@@ -79,7 +81,7 @@ const printJobSchema = new mongoose.Schema({
     fileName:        String,
     pages:           Number,
     cost:            Number,
-    status:          { type: String, enum: ['pending','printing','completed','failed'], default: 'pending' },
+    status:          { type: String, enum: ['pending','printing','completed','failed','cancelled'], default: 'pending' },
     duplex:          { type: Boolean, default: false },
     colorMode:       { type: String, enum: ['bw','color'], default: 'bw' },
     pageRangeFrom:   { type: Number, default: 0 },
@@ -92,11 +94,23 @@ const printJobSchema = new mongoose.Schema({
     createdAt:       { type: Date, default: Date.now }
 });
 
-const User            = mongoose.model('User',            userSchema);
-const Section         = mongoose.model('Section',         sectionSchema);
-const PrinterLocation = mongoose.model('PrinterLocation', printerLocationSchema);
-const Settings        = mongoose.model('Settings',        settingsSchema);
-const PrintJob        = mongoose.model('PrintJob',        printJobSchema);
+const walletTransactionSchema = new mongoose.Schema({
+    studentId:   { type: String, required: true },
+    amount:      { type: Number, required: true },   // positive = credit, negative = debit
+    type:        { type: String, enum: ['credit','debit'], required: true },
+    description: { type: String, default: '' },       // e.g. "Topped up by Admin", "Print: file.pdf"
+    addedBy:     { type: String, default: '' },        // name of who added funds (admin/faculty)
+    addedByRole: { type: String, default: '' },
+    balanceAfter:{ type: Number, default: 0 },
+    createdAt:   { type: Date, default: Date.now }
+});
+
+const User            = mongoose.model('User',              userSchema);
+const Section         = mongoose.model('Section',           sectionSchema);
+const PrinterLocation = mongoose.model('PrinterLocation',   printerLocationSchema);
+const Settings        = mongoose.model('Settings',          settingsSchema);
+const PrintJob        = mongoose.model('PrintJob',          printJobSchema);
+const WalletTx        = mongoose.model('WalletTransaction', walletTransactionSchema);
 
 // ── Seed ─────────────────────────────────────────────────────────────────────
 async function initDB() {
@@ -151,7 +165,13 @@ async function countPages(filePath) {
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await User.findOne({ email });
+        // Accept login via email OR USN (students can use either)
+        const user = await User.findOne({
+            $or: [
+                { email: email },
+                { usn: email.toUpperCase() }   // USN is stored uppercase
+            ]
+        });
         if (!user || !bcrypt.compareSync(password, user.password))
             return res.status(401).json({ error: 'Invalid credentials' });
         const token = jwt.sign(
@@ -160,7 +180,8 @@ app.post('/api/auth/login', async (req, res) => {
         );
         res.json({ token, user: {
             id:user._id, email:user.email, role:user.role, name:user.name,
-            wallet:user.wallet, section:user.section, department:user.department
+            wallet:user.wallet, section:user.section, department:user.department,
+            usn: user.usn || '', assignedSection: user.assignedSection || ''
         }});
     } catch { res.status(500).json({ error: 'Login error' }); }
 });
@@ -199,6 +220,17 @@ app.delete('/api/admin/printer-locations/:id', verifyToken, requireAdmin, async 
     try {
         await PrinterLocation.findByIdAndDelete(req.params.id);
         res.json({ message: 'Deleted' });
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Admin: toggle maintenance mode on a printer
+app.post('/api/admin/printer-locations/:id/maintenance', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const loc = await PrinterLocation.findById(req.params.id);
+        if (!loc) return res.status(404).json({ error: 'Printer not found' });
+        loc.maintenanceMode = !loc.maintenanceMode;
+        await loc.save();
+        res.json({ maintenanceMode: loc.maintenanceMode, name: loc.name });
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
@@ -313,6 +345,12 @@ app.post('/api/faculty/add-wallet', verifyToken, async (req, res) => {
             return res.status(403).json({ error: 'Student is not in your section' });
         student.wallet += parseInt(amount);
         await student.save();
+        await WalletTx.create({
+            studentId: studentId, amount: parseInt(amount),
+            type: 'credit', description: `Topped up by Faculty`,
+            addedBy: faculty?.name || 'Faculty', addedByRole: 'faculty',
+            balanceAfter: student.wallet
+        });
         res.json({ message: 'Wallet updated', wallet: student.wallet });
     } catch { res.status(500).json({ error: 'Error updating wallet' }); }
 });
@@ -372,6 +410,13 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
             student.wallet -= cost;
             await student.save();
             remainingWallet = student.wallet;
+            // Log wallet debit
+            await WalletTx.create({
+                studentId: req.user.id, amount: cost,
+                type: 'debit', description: `Print: ${req.file.originalname}`,
+                addedBy: 'System', addedByRole: 'system',
+                balanceAfter: student.wallet
+            });
         }
 
         // Resolve printer location:
@@ -402,8 +447,21 @@ app.post('/api/upload', verifyToken, upload.single('pdf'), async (req, res) => {
         }
 
         if (resolvedPrinterId) {
-            const loc = await PrinterLocation.findById(resolvedPrinterId).select('name');
-            if (loc) locationName = loc.name;
+            const loc = await PrinterLocation.findById(resolvedPrinterId).select('name maintenanceMode');
+            if (loc) {
+                locationName = loc.name;
+                // Block if printer is in maintenance mode
+                if (loc.maintenanceMode) {
+                    fs.unlinkSync(filePath);
+                    return res.status(503).json({ error: `"${loc.name}" is under maintenance. Please try again later.` });
+                }
+            }
+        }
+
+        // Block upload if no printer is assigned for this student's section
+        if (role === 'student' && !resolvedPrinterId) {
+            fs.unlinkSync(filePath);
+            return res.status(400).json({ error: 'No printer is assigned to your section. Please contact admin.' });
         }
 
         const fileData = fs.readFileSync(filePath);
@@ -459,6 +517,41 @@ app.get('/api/student/wallet', verifyToken, async (req, res) => {
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
+// Student: wallet transaction history
+app.get('/api/student/wallet-history', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'student')
+            return res.status(403).json({ error: 'Unauthorized' });
+        const txs = await WalletTx.find({ studentId: req.user.id })
+            .sort({ createdAt: -1 }).limit(100);
+        res.json(txs);
+    } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Faculty: add a student to their assigned section
+app.post('/api/faculty/add-student', verifyToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'faculty') return res.status(403).json({ error: 'Unauthorized' });
+        const { name, email, password, usn } = req.body;
+        if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password required' });
+        if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        const faculty = await User.findById(req.user.id);
+        const assignedSection = faculty?.assignedSection || '';
+        if (!assignedSection) return res.status(400).json({ error: 'You have no section assigned. Contact admin.' });
+        if (await User.findOne({ email })) return res.status(400).json({ error: 'Email already exists' });
+        if (usn && await User.findOne({ usn: usn.toUpperCase() }))
+            return res.status(400).json({ error: 'USN already exists' });
+        const s = await new User({
+            email, password: bcrypt.hashSync(password, 10),
+            role: 'student', name,
+            usn: usn ? usn.toUpperCase() : '',
+            section: assignedSection,
+            wallet: 0
+        }).save();
+        res.json({ message: 'Student created', student: { id: s._id, name: s.name, email: s.email, usn: s.usn, section: s.section, wallet: 0 } });
+    } catch { res.status(500).json({ error: 'Error creating student' }); }
+});
+
 // Student: their own print job history
 app.get('/api/student/jobs', verifyToken, async (req, res) => {
     try {
@@ -480,25 +573,51 @@ app.get('/api/student/jobs/:jobId/status', verifyToken, async (req, res) => {
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
+// Student/Faculty: cancel a pending job (only if still pending — not printing)
+app.post('/api/student/jobs/:jobId/cancel', verifyToken, async (req, res) => {
+    try {
+        const job = await PrintJob.findOne({ _id: req.params.jobId, userId: req.user.id });
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'pending') {
+            return res.status(400).json({ error: job.status === 'printing'
+                ? 'Cannot cancel — job is already printing'
+                : `Job is already ${job.status}` });
+        }
+        // Refund wallet for students
+        if (job.userRole === 'student' && job.cost > 0) {
+            await User.findByIdAndUpdate(job.userId, { $inc: { wallet: job.cost } });
+        }
+        await PrintJob.findByIdAndUpdate(job._id, { status: 'cancelled' });
+        res.json({ message: 'Job cancelled', refunded: job.cost });
+    } catch { res.status(500).json({ error: 'Error cancelling job' }); }
+});
+
 // Student: get their assigned printer status
 app.get('/api/student/printer-status', verifyToken, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         let printerId = '';
+
         if (user?.section) {
             const sec = await Section.findOne({ name: user.section });
             if (sec?.assignedPrinterId) printerId = sec.assignedPrinterId;
         }
+
+        // No printer assigned to section — warn the student
         if (!printerId) {
-            const defaultLoc = await PrinterLocation.findOne().sort({ createdAt: 1 });
-            if (defaultLoc) {
-                return res.json({ name: defaultLoc.name, isOnline: defaultLoc.isOnline, lastSeen: defaultLoc.lastSeen });
-            }
-            return res.json({ name: 'No printer', isOnline: false });
+            return res.json({
+                name: 'No printer assigned',
+                isOnline: false,
+                unassigned: true,
+                message: user?.section
+                    ? `Section "${user.section}" has no printer assigned. Contact admin.`
+                    : 'You are not assigned to any section. Contact admin.'
+            });
         }
+
         const loc = await PrinterLocation.findById(printerId);
-        if (!loc) return res.json({ name: 'Unknown', isOnline: false });
-        res.json({ name: loc.name, isOnline: loc.isOnline, lastSeen: loc.lastSeen });
+        if (!loc) return res.json({ name: 'Unknown', isOnline: false, unassigned: true });
+        res.json({ name: loc.name, isOnline: loc.isOnline, lastSeen: loc.lastSeen, unassigned: false, maintenanceMode: loc.maintenanceMode || false });
     } catch { res.status(500).json({ error: 'Error' }); }
 });
 
@@ -506,17 +625,35 @@ app.get('/api/student/printer-status', verifyToken, async (req, res) => {
 //  ADMIN — Users
 // ════════════════════════════════════════════════════════════════════════════
 app.get('/api/admin/students', verifyToken, requireAdmin, async (req, res) => {
-    try { res.json(await User.find({ role: 'student' }).select('-password')); }
+    try { res.json(await User.find({ role: 'student' }).select('-password').sort({ name: 1 })); }
     catch { res.status(500).json({ error: 'Error' }); }
 });
 
 app.post('/api/admin/students', verifyToken, requireAdmin, async (req, res) => {
     try {
-        const { name, email, password, section, wallet } = req.body;
+        const { name, email, password, section, wallet, usn } = req.body;
         if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password required' });
         if (await User.findOne({ email })) return res.status(400).json({ error: 'Email already exists' });
-        const s = await new User({ email, password:bcrypt.hashSync(password,10), role:'student', name, section:section||'', wallet:parseInt(wallet)||0 }).save();
-        res.json({ message:'Student created', student:{ id:s._id, name:s.name, email:s.email, section:s.section, wallet:s.wallet } });
+        if (usn && await User.findOne({ usn: usn.toUpperCase() }))
+            return res.status(400).json({ error: 'USN already exists' });
+        const initialWallet = parseInt(wallet) || 0;
+        const s = await new User({
+            email, password: bcrypt.hashSync(password, 10),
+            role: 'student', name,
+            usn: usn ? usn.toUpperCase() : '',
+            section: section || '',
+            wallet: initialWallet
+        }).save();
+        // Log initial wallet credit if any
+        if (initialWallet > 0) {
+            await WalletTx.create({
+                studentId: s._id.toString(), amount: initialWallet,
+                type: 'credit', description: 'Initial balance',
+                addedBy: req.user.name || 'Admin', addedByRole: 'admin',
+                balanceAfter: initialWallet
+            });
+        }
+        res.json({ message:'Student created', student:{ id:s._id, name:s.name, email:s.email, usn:s.usn, section:s.section, wallet:s.wallet } });
     } catch { res.status(500).json({ error: 'Error creating student' }); }
 });
 
@@ -546,10 +683,17 @@ app.post('/api/admin/faculty', verifyToken, requireAdmin, async (req, res) => {
 app.post('/api/admin/add-wallet', verifyToken, requireAdmin, async (req, res) => {
     try {
         const { studentId, amount } = req.body;
+        if (!amount || parseInt(amount) <= 0) return res.status(400).json({ error: 'Amount must be positive' });
         const student = await User.findById(studentId);
         if (!student) return res.status(404).json({ error: 'Student not found' });
         student.wallet += parseInt(amount);
         await student.save();
+        await WalletTx.create({
+            studentId: studentId, amount: parseInt(amount),
+            type: 'credit', description: 'Topped up by Admin',
+            addedBy: req.user.name || 'Admin', addedByRole: 'admin',
+            balanceAfter: student.wallet
+        });
         res.json({ message:'Wallet updated', wallet:student.wallet });
     } catch { res.status(500).json({ error: 'Error' }); }
 });
@@ -747,18 +891,11 @@ app.get('/api/agent/pending-jobs', async (req, res) => {
         // Update heartbeat
         await PrinterLocation.findByIdAndUpdate(loc._id, { isOnline:true, lastSeen:new Date() });
 
-        // Return pending jobs for this location
-        // If printerLocationId is empty, it goes to the default (first) location
-        const defaultLoc = await PrinterLocation.findOne().sort({ createdAt: 1 });
+        // Return ONLY jobs explicitly assigned to this printer location.
+        // Jobs with no printerLocationId are blocked at upload time, so no fallback needed.
         const query = {
             status: 'pending',
-            $or: [
-                { printerLocationId: loc._id.toString() },
-                // Jobs with no location go to default printer
-                ...(loc._id.toString() === defaultLoc?._id.toString()
-                    ? [{ printerLocationId: { $in: ['', null, undefined] } }]
-                    : [])
-            ]
+            printerLocationId: loc._id.toString()
         };
         res.json(await PrintJob.find(query).select('-fileData').sort({ createdAt: 1 }));
     } catch { res.status(500).json({ error: 'Error' }); }

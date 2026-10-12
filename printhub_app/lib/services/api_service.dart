@@ -7,9 +7,10 @@ import '../models/print_job_model.dart';
 import '../models/settings_model.dart';
 import '../models/section_model.dart';
 import '../models/printer_location_model.dart';
+import '../models/wallet_transaction_model.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://13.238.182.185:3000'; // TODO: replace with your EC2 IP
+  static const String baseUrl = 'http://13.238.182.185:3000';
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> login(String email, String password) async {
@@ -26,6 +27,15 @@ class ApiService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'name': name, 'email': email, 'password': password, 'section': section}))
         .timeout(const Duration(seconds: 30));
+    return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> changePassword(
+      String token, String currentPassword, String newPassword) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/auth/change-password'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'currentPassword': currentPassword, 'newPassword': newPassword}))
+        .timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
@@ -57,8 +67,15 @@ class ApiService {
 
   static Future<Map<String, dynamic>> deletePrinterLocation(
       String token, String id) async {
-    final r = await http.delete(
-        Uri.parse('$baseUrl/api/admin/printer-locations/$id'),
+    final r = await http.delete(Uri.parse('$baseUrl/api/admin/printer-locations/$id'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> toggleMaintenanceMode(
+      String token, String printerId) async {
+    final r = await http.post(
+        Uri.parse('$baseUrl/api/admin/printer-locations/$printerId/maintenance'),
         headers: _auth(token)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
@@ -83,7 +100,6 @@ class ApiService {
     return _handle(r);
   }
 
-  // Admin: assign section to an existing faculty member
   static Future<Map<String, dynamic>> assignSectionToFaculty(
       String token, String userId, String sectionName) async {
     final r = await http.post(
@@ -103,34 +119,6 @@ class ApiService {
     return list.map((e) => SectionModel.fromJson(e)).toList();
   }
 
-  // Faculty: get only sections assigned to the same printer as this faculty
-  static Future<List<SectionModel>> getFacultySections(String token) async {
-    final r = await http.get(Uri.parse('$baseUrl/api/faculty/sections-for-printer'),
-        headers: _auth(token)).timeout(const Duration(seconds: 15));
-    if (r.statusCode != 200) return [];
-    final List list = jsonDecode(r.body);
-    return list.map((e) => SectionModel.fromJson(e)).toList();
-  }
-
-  // Faculty: get students in their assigned section
-  static Future<List<UserModel>> getFacultyStudents(String token) async {
-    final r = await http.get(Uri.parse('$baseUrl/api/faculty/my-students'),
-        headers: _auth(token)).timeout(const Duration(seconds: 15));
-    if (r.statusCode != 200) return [];
-    final List list = jsonDecode(r.body);
-    return list.map((e) => UserModel.fromJson(e)).toList();
-  }
-
-  // Faculty: add funds to a student in their section
-  static Future<Map<String, dynamic>> facultyAddWallet(
-      String token, String studentId, int amount) async {
-    final r = await http.post(Uri.parse('$baseUrl/api/faculty/add-wallet'),
-        headers: {'Content-Type': 'application/json', ..._auth(token)},
-        body: jsonEncode({'studentId': studentId, 'amount': amount}))
-        .timeout(const Duration(seconds: 15));
-    return _handle(r);
-  }
-
   static Future<Map<String, dynamic>> createSection(String token, String name) async {
     final r = await http.post(Uri.parse('$baseUrl/api/admin/sections'),
         headers: {'Content-Type': 'application/json', ..._auth(token)},
@@ -142,6 +130,40 @@ class ApiService {
   static Future<Map<String, dynamic>> deleteSection(String token, String id) async {
     final r = await http.delete(Uri.parse('$baseUrl/api/admin/sections/$id'),
         headers: _auth(token)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  // ── FACULTY ───────────────────────────────────────────────────────────────
+  static Future<List<SectionModel>> getFacultySections(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/faculty/sections-for-printer'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => SectionModel.fromJson(e)).toList();
+  }
+
+  static Future<List<UserModel>> getFacultyStudents(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/faculty/my-students'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => UserModel.fromJson(e)).toList();
+  }
+
+  static Future<Map<String, dynamic>> facultyAddWallet(
+      String token, String studentId, int amount) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/faculty/add-wallet'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode({'studentId': studentId, 'amount': amount}))
+        .timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> facultyAddStudent(
+      String token, Map<String, dynamic> data) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/faculty/add-student'),
+        headers: {'Content-Type': 'application/json', ..._auth(token)},
+        body: jsonEncode(data)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
@@ -165,7 +187,6 @@ class ApiService {
     return _handle(r);
   }
 
-  // Student: own print job history
   static Future<List<PrintJobModel>> getMyJobs(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/student/jobs'),
         headers: _auth(token)).timeout(const Duration(seconds: 15));
@@ -174,18 +195,36 @@ class ApiService {
     return list.map((e) => PrintJobModel.fromJson(e)).toList();
   }
 
-  // Student: poll single job status
   static Future<Map<String, dynamic>> getJobStatus(String token, String jobId) async {
     final r = await http.get(Uri.parse('$baseUrl/api/student/jobs/$jobId/status'),
         headers: _auth(token)).timeout(const Duration(seconds: 10));
     return _handle(r);
   }
 
-  // Student: get their assigned printer status
   static Future<Map<String, dynamic>> getMyPrinterStatus(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/student/printer-status'),
         headers: _auth(token)).timeout(const Duration(seconds: 10));
     return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> getQueuePosition(String token, String jobId) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/queue-position/$jobId'),
+        headers: _auth(token)).timeout(const Duration(seconds: 10));
+    return _handle(r);
+  }
+
+  static Future<Map<String, dynamic>> cancelJob(String token, String jobId) async {
+    final r = await http.post(Uri.parse('$baseUrl/api/student/jobs/$jobId/cancel'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    return _handle(r);
+  }
+
+  static Future<List<WalletTransactionModel>> getWalletHistory(String token) async {
+    final r = await http.get(Uri.parse('$baseUrl/api/student/wallet-history'),
+        headers: _auth(token)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) return [];
+    final List list = jsonDecode(r.body);
+    return list.map((e) => WalletTransactionModel.fromJson(e)).toList();
   }
 
   // ── ADMIN ─────────────────────────────────────────────────────────────────
@@ -238,43 +277,23 @@ class ApiService {
     return _handle(r);
   }
 
-  // Admin: delete a user (student or faculty)
   static Future<Map<String, dynamic>> deleteUser(String token, String userId) async {
     final r = await http.delete(Uri.parse('$baseUrl/api/admin/users/$userId'),
         headers: _auth(token)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
-  // Admin: dashboard stats
   static Future<Map<String, dynamic>> getAdminStats(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/admin/stats'),
         headers: _auth(token)).timeout(const Duration(seconds: 15));
     return _handle(r);
   }
 
-  // Admin: printer queue
   static Future<List<dynamic>> getPrinterQueue(String token) async {
     final r = await http.get(Uri.parse('$baseUrl/api/admin/printer-queue'),
         headers: _auth(token)).timeout(const Duration(seconds: 15));
     if (r.statusCode != 200) return [];
     return jsonDecode(r.body) as List;
-  }
-
-  // Change password (student/faculty/admin)
-  static Future<Map<String, dynamic>> changePassword(
-      String token, String currentPassword, String newPassword) async {
-    final r = await http.post(Uri.parse('$baseUrl/api/auth/change-password'),
-        headers: {'Content-Type': 'application/json', ..._auth(token)},
-        body: jsonEncode({'currentPassword': currentPassword, 'newPassword': newPassword}))
-        .timeout(const Duration(seconds: 15));
-    return _handle(r);
-  }
-
-  // Student: get queue position for active job
-  static Future<Map<String, dynamic>> getQueuePosition(String token, String jobId) async {
-    final r = await http.get(Uri.parse('$baseUrl/api/student/queue-position/$jobId'),
-        headers: _auth(token)).timeout(const Duration(seconds: 10));
-    return _handle(r);
   }
 
   // ── SETTINGS ──────────────────────────────────────────────────────────────

@@ -108,89 +108,321 @@ class _PrintersTabState extends State<PrintersTab> {
   }
 
   void _showAssignSheet(BuildContext context, PrinterLocationModel printer) {
-    String assignType = 'section';
-    String? selectedId;
+    // Track what's currently assigned to this printer for context
+    int _tabIndex = 0; // 0 = Students (by section), 1 = Faculty
+    String? selectedSectionId;
+    String? selectedFacultyId;
+
+    // Which sections already have this printer assigned
+    final assignedSections = widget.sections
+        .where((s) => s.assignedPrinterId == printer.id)
+        .toList();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Text('Assign "${printer.name}"', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppTheme.textPrimary))),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
-              ]),
-              const SizedBox(height: 16),
-              // Type selector — Section and Faculty only
-              Row(children: [
-                _typeChip('Section', assignType == 'section', () => setSheet(() { assignType = 'section'; selectedId = null; })),
-                const SizedBox(width: 8),
-                _typeChip('Faculty', assignType == 'faculty', () => setSheet(() { assignType = 'faculty'; selectedId = null; })),
-              ]),
-              const SizedBox(height: 16),
-              // Dropdown
-              DropdownButtonFormField<String>(
-                initialValue: selectedId,
-                decoration: InputDecoration(
-                  labelText: assignType == 'section' ? 'Select Section' : 'Select Person',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 2)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                items: assignType == 'section'
-                    ? widget.sections.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList()
-                    : widget.faculty.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))).toList(),
-                onChanged: (v) => setSheet(() => selectedId = v),
+        builder: (ctx, setSheet) {
+          final content = _tabIndex == 0
+              // ── STUDENTS TAB (section-based) ──────────────────
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Students print to this printer based on their section.\nSelect a section to assign:',
+                      style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    // Show already-assigned sections with remove buttons
+                    if (assignedSections.isNotEmpty) ...[
+                      const Text('Currently assigned — tap ✕ to remove:',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6, runSpacing: 6,
+                        children: assignedSections.map((s) => Container(
+                          padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4, right: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.success.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.check_circle_rounded, size: 12, color: AppTheme.success),
+                            const SizedBox(width: 4),
+                            Text(s.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.success)),
+                            const SizedBox(width: 4),
+                            GestureDetector(
+                              onTap: () async {
+                                Navigator.pop(ctx);
+                                await ApiService.assignPrinterToSection(widget.token, s.id, '');
+                                widget.onRefresh();
+                                _load();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text('"${s.name}" removed'),
+                                    backgroundColor: AppTheme.success,
+                                  ));
+                                }
+                              },
+                              child: Container(
+                                width: 20, height: 20,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.error.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                                child: const Icon(Icons.close_rounded, size: 12, color: AppTheme.error),
+                              ),
+                            ),
+                          ]),
+                        )).toList(),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    DropdownButtonFormField<String>(
+                      value: selectedSectionId,
+                      decoration: InputDecoration(
+                        labelText: 'Select Section (Students)',
+                        hintText: 'Choose a section',
+                        prefixIcon: const Icon(Icons.category_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                      items: widget.sections.map((s) {
+                        final alreadyHere = s.assignedPrinterId == printer.id;
+                        return DropdownMenuItem(
+                          value: s.id,
+                          child: Row(children: [
+                            Text(s.name),
+                            if (alreadyHere) ...[
+                              const SizedBox(width: 6),
+                              const Text('(current)', style: TextStyle(fontSize: 11, color: AppTheme.success)),
+                            ],
+                          ]),
+                        );
+                      }).toList(),
+                      onChanged: (v) => setSheet(() => selectedSectionId = v),
+                    ),
+                  ],
+                )
+              // ── FACULTY TAB ───────────────────────────────────
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Faculty can choose any printer when uploading.\nYou can also set a default printer for a faculty member:',
+                      style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    // Show faculty already assigned to this printer with remove buttons
+                    Builder(builder: (_) {
+                      final assignedFaculty = widget.faculty
+                          .where((f) => f.section == printer.id)
+                          .toList();
+                      if (assignedFaculty.isEmpty) return const SizedBox.shrink();
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('Currently assigned — tap ✕ to remove:',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                        const SizedBox(height: 6),
+                        Wrap(spacing: 6, runSpacing: 6,
+                          children: assignedFaculty.map((f) => Container(
+                            padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4, right: 4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.success.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              const Icon(Icons.school_rounded, size: 12, color: AppTheme.success),
+                              const SizedBox(width: 4),
+                              Text(f.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.success)),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  // Remove by assigning empty printer
+                                  await ApiService.assignPrinterToUser(widget.token, f.id, '');
+                                  widget.onRefresh();
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                      content: Text('"${f.name}" printer assignment removed'),
+                                      backgroundColor: AppTheme.success,
+                                    ));
+                                  }
+                                },
+                                child: Container(
+                                  width: 20, height: 20,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.error.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: const Icon(Icons.close_rounded, size: 12, color: AppTheme.error),
+                                ),
+                              ),
+                            ]),
+                          )).toList(),
+                        ),
+                        const SizedBox(height: 14),
+                      ]);
+                    }),
+                    DropdownButtonFormField<String>(
+                      value: selectedFacultyId,
+                      decoration: InputDecoration(
+                        labelText: 'Assign new faculty member',
+                        hintText: 'Choose faculty',
+                        prefixIcon: const Icon(Icons.school_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                      items: widget.faculty.isEmpty
+                          ? [const DropdownMenuItem(value: null, child: Text('No faculty added yet'))]
+                          : widget.faculty.map((u) {
+                              final hasPrinter = u.section == printer.id;
+                              return DropdownMenuItem(
+                                value: u.id,
+                                child: Row(children: [
+                                  Text(u.name),
+                                  if (u.department.isNotEmpty) ...[
+                                    const SizedBox(width: 4),
+                                    Text('(${u.department})',
+                                        style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                  ],
+                                  if (hasPrinter) ...[
+                                    const SizedBox(width: 6),
+                                    const Text('(current)', style: TextStyle(fontSize: 11, color: AppTheme.success)),
+                                  ],
+                                ]),
+                              );
+                            }).toList(),
+                      onChanged: widget.faculty.isEmpty ? null : (v) => setSheet(() => selectedFacultyId = v),
+                    ),
+                  ],
+                );
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity, height: 50,
-                child: ElevatedButton(
-                  onPressed: selectedId == null ? null : () async {
-                    Map<String, dynamic> result;
-                    if (assignType == 'section') {
-                      result = await ApiService.assignPrinterToSection(widget.token, selectedId!, printer.id);
-                    } else {
-                      // Faculty
-                      result = await ApiService.assignPrinterToUser(widget.token, selectedId!, printer.id);
-                    }
-                    if (!ctx.mounted) return;
-                    if (result['error'] != null) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['error']), backgroundColor: AppTheme.error));
-                    } else {
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Printer assigned!'), backgroundColor: AppTheme.success));
-                      widget.onRefresh();
-                    }
-                  },
-                  child: const Text('Assign', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(children: [
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Assign  "${printer.name}"',
+                            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                        const SizedBox(height: 2),
+                        const Text('Choose who prints to this printer',
+                            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                      ]),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ]),
+                  const SizedBox(height: 16),
+
+                  // Tab selector
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(children: [
+                      _tabBtn('👥 Students (Section)', _tabIndex == 0,
+                          () => setSheet(() { _tabIndex = 0; selectedSectionId = null; })),
+                      const SizedBox(width: 4),
+                      _tabBtn('🎓 Faculty', _tabIndex == 1,
+                          () => setSheet(() { _tabIndex = 1; selectedFacultyId = null; })),
+                    ]),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Tab content
+                  content,
+                  const SizedBox(height: 20),
+
+                  // Assign button
+                  SizedBox(
+                    width: double.infinity, height: 50,
+                    child: ElevatedButton(
+                      onPressed: (_tabIndex == 0 ? selectedSectionId : selectedFacultyId) == null
+                          ? null
+                          : () async {
+                              Map<String, dynamic> result;
+                              if (_tabIndex == 0) {
+                                result = await ApiService.assignPrinterToSection(
+                                    widget.token, selectedSectionId!, printer.id);
+                              } else {
+                                result = await ApiService.assignPrinterToUser(
+                                    widget.token, selectedFacultyId!, printer.id);
+                              }
+                              if (!ctx.mounted) return;
+                              if (result['error'] != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text(result['error']), backgroundColor: AppTheme.error));
+                              } else {
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text(_tabIndex == 0
+                                        ? 'Section assigned — students will print here'
+                                        : 'Faculty default printer set'),
+                                    backgroundColor: AppTheme.success));
+                                widget.onRefresh();
+                                _load();
+                              }
+                            },
+                      child: Text(
+                        _tabIndex == 0 ? 'Assign Section to this Printer' : 'Set as Faculty Default Printer',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
               ),
-              const SizedBox(height: 8),
-            ]),
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _typeChip(String label, bool active, VoidCallback onTap) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: active ? AppTheme.primary : AppTheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: active ? AppTheme.primary : AppTheme.divider),
+  Widget _tabBtn(String label, bool active, VoidCallback onTap) => Expanded(
+    child: GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: active
+              ? [const BoxShadow(color: Color(0x12000000), blurRadius: 4, offset: Offset(0, 2))]
+              : [],
+        ),
+        child: Text(label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: active ? AppTheme.primary : AppTheme.textSecondary,
+            )),
       ),
-      child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: active ? Colors.white : AppTheme.textSecondary)),
     ),
   );
 
@@ -245,14 +477,25 @@ class _PrintersTabState extends State<PrintersTab> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: p.isOnline ? AppTheme.success.withValues(alpha: 0.1) : AppTheme.surface,
+                                  color: p.maintenanceMode
+                                      ? const Color(0xFF7C3AED).withValues(alpha: 0.1)
+                                      : p.isOnline ? AppTheme.success.withValues(alpha: 0.1) : AppTheme.surface,
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Container(width: 8, height: 8, decoration: BoxDecoration(color: p.isOnline ? AppTheme.success : Colors.grey, shape: BoxShape.circle)),
+                                  Container(width: 8, height: 8, decoration: BoxDecoration(
+                                      color: p.maintenanceMode
+                                          ? const Color(0xFF7C3AED)
+                                          : p.isOnline ? AppTheme.success : Colors.grey,
+                                      shape: BoxShape.circle)),
                                   const SizedBox(width: 5),
-                                  Text(p.isOnline ? 'Online' : 'Offline',
-                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: p.isOnline ? AppTheme.success : Colors.grey)),
+                                  Text(
+                                    p.maintenanceMode ? 'Maintenance' : (p.isOnline ? 'Online' : 'Offline'),
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
+                                        color: p.maintenanceMode
+                                            ? const Color(0xFF7C3AED)
+                                            : p.isOnline ? AppTheme.success : Colors.grey),
+                                  ),
                                 ]),
                               ),
                               const Spacer(),
@@ -310,6 +553,82 @@ class _PrintersTabState extends State<PrintersTab> {
                               ]),
                             ),
                             const SizedBox(height: 12),
+                            // Show which sections are assigned to this printer
+                            Builder(builder: (context) {
+                              final assigned = widget.sections.where((s) => s.assignedPrinterId == p.id).toList();
+                              if (assigned.isEmpty) return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: const Text('No sections assigned yet',
+                                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                              );
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Sections printing here:',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                                  const SizedBox(height: 6),
+                                  Wrap(spacing: 6, runSpacing: 6,
+                                    children: assigned.map((s) {
+                                      final count = widget.students.where((st) => st.section == s.name).length;
+                                      return Container(
+                                        padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4, right: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primary.withValues(alpha: 0.08),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                                        ),
+                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                          Text('${s.name} · $count students',
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                                          const SizedBox(width: 4),
+                                          GestureDetector(
+                                            onTap: () async {
+                                              final confirm = await showDialog<bool>(
+                                                context: context,
+                                                builder: (_) => AlertDialog(
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                  title: const Text('Remove Section'),
+                                                  content: Text('Remove "${s.name}" from "${p.name}"?\nStudents in this section will have no printer assigned.'),
+                                                  actions: [
+                                                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(context, true),
+                                                      child: const Text('Remove', style: TextStyle(color: AppTheme.error)),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                              if (confirm == true) {
+                                                // Assign empty string to remove
+                                                await ApiService.assignPrinterToSection(widget.token, s.id, '');
+                                                widget.onRefresh();
+                                                _load();
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                                    content: Text('"${s.name}" removed from "${p.name}"'),
+                                                    backgroundColor: AppTheme.success,
+                                                  ));
+                                                }
+                                              }
+                                            },
+                                            child: Container(
+                                              width: 22, height: 22,
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.error.withValues(alpha: 0.1),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Icon(Icons.close_rounded, size: 13, color: AppTheme.error),
+                                            ),
+                                          ),
+                                        ]),
+                                      );
+                                    }).toList(),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                              );
+                            }),
                             // Assign buttons
                             Row(children: [
                               Expanded(child: OutlinedButton.icon(
@@ -322,6 +641,42 @@ class _PrintersTabState extends State<PrintersTab> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                 ),
                               )),
+                              const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result = await ApiService.toggleMaintenanceMode(widget.token, p.id);
+                                  if (!context.mounted) return;
+                                  if (result['error'] != null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                        content: Text(result['error']), backgroundColor: AppTheme.error));
+                                  } else {
+                                    final inMaintenance = result['maintenanceMode'] ?? false;
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                      content: Text(inMaintenance
+                                          ? '🔧 "${p.name}" set to maintenance mode'
+                                          : '✅ "${p.name}" back to normal'),
+                                      backgroundColor: inMaintenance ? const Color(0xFF7C3AED) : AppTheme.success,
+                                    ));
+                                    _load();
+                                    widget.onRefresh();
+                                  }
+                                },
+                                icon: Icon(
+                                  p.maintenanceMode ? Icons.check_circle_outline_rounded : Icons.build_outlined,
+                                  size: 16,
+                                  color: p.maintenanceMode ? AppTheme.success : const Color(0xFF7C3AED),
+                                ),
+                                label: Text(
+                                  p.maintenanceMode ? 'End Maintenance' : 'Maintenance',
+                                  style: TextStyle(
+                                      color: p.maintenanceMode ? AppTheme.success : const Color(0xFF7C3AED)),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                      color: p.maintenanceMode ? AppTheme.success : const Color(0xFF7C3AED)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
                             ]),
                           ]),
                         );

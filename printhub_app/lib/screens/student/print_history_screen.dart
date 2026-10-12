@@ -127,28 +127,31 @@ class _JobCard extends StatelessWidget {
 
   Color get _statusColor {
     switch (job.status) {
-      case 'completed': return AppTheme.success;
-      case 'printing':  return AppTheme.primary;
-      case 'failed':    return AppTheme.error;
-      default:          return AppTheme.warning;
+      case 'completed':  return AppTheme.success;
+      case 'printing':   return AppTheme.primary;
+      case 'failed':     return AppTheme.error;
+      case 'cancelled':  return AppTheme.textSecondary;
+      default:           return AppTheme.warning;
     }
   }
 
   IconData get _statusIcon {
     switch (job.status) {
-      case 'completed': return Icons.check_circle_rounded;
-      case 'printing':  return Icons.print_rounded;
-      case 'failed':    return Icons.cancel_rounded;
-      default:          return Icons.hourglass_top_rounded;
+      case 'completed':  return Icons.check_circle_rounded;
+      case 'printing':   return Icons.print_rounded;
+      case 'failed':     return Icons.cancel_rounded;
+      case 'cancelled':  return Icons.do_not_disturb_rounded;
+      default:           return Icons.hourglass_top_rounded;
     }
   }
 
   String get _statusLabel {
     switch (job.status) {
-      case 'completed': return 'Completed';
-      case 'printing':  return 'Printing…';
-      case 'failed':    return 'Failed';
-      default:          return 'Pending';
+      case 'completed':  return 'Completed';
+      case 'printing':   return 'Printing…';
+      case 'failed':     return 'Failed';
+      case 'cancelled':  return 'Cancelled';
+      default:           return 'Pending';
     }
   }
 

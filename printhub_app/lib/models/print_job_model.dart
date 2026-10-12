@@ -57,4 +57,6 @@ class PrintJobModel {
   bool get isPrinting  => status == 'printing';
   bool get isCompleted => status == 'completed';
   bool get isFailed    => status == 'failed';
+  bool get isCancelled => status == 'cancelled';
+  bool get isActive    => isPending || isPrinting;
 }

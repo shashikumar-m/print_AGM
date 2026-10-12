@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import 'upload_screen.dart';
 import 'print_history_screen.dart';
+import 'wallet_history_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   final bool isFaculty;
@@ -26,9 +27,11 @@ class _StudentDashboardState extends State<StudentDashboard> {
   bool          _loading  = true;
 
   // Printer status
-  String _printerName    = '';
-  bool   _printerOnline  = false;
-  bool   _printerLoaded  = false;
+  String _printerName       = '';
+  bool   _printerOnline     = false;
+  bool   _printerLoaded     = false;
+  bool   _printerUnassigned = false;
+  bool   _printerMaintenance = false;
 
   // Active job tracker (most recent pending/printing job)
   PrintJobModel? _activeJob;
@@ -82,10 +85,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
     try {
       final data = await ApiService.getMyPrinterStatus(_token!);
       if (!mounted) return;
+      final unassigned    = data['unassigned']    ?? false;
+      final maintenance   = data['maintenanceMode'] ?? false;
       setState(() {
-        _printerName   = data['name']     ?? '';
-        _printerOnline = data['isOnline'] ?? false;
-        _printerLoaded = true;
+        _printerName    = unassigned
+            ? (data['message'] ?? 'No printer assigned')
+            : (data['name'] ?? '');
+        _printerOnline      = !unassigned && !maintenance && (data['isOnline'] ?? false);
+        _printerLoaded      = true;
+        _printerUnassigned  = unassigned;
+        _printerMaintenance = maintenance;
       });
     } catch (_) {}
   }
@@ -275,6 +284,43 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
+  Future<void> _cancelJob() async {
+    if (_activeJob == null || !_activeJob!.isPending) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Cancel Print Job'),
+        content: Text('Cancel "${_activeJob!.fileName}"?\n\nYour ₹${_activeJob!.cost.toStringAsFixed(0)} will be refunded to your wallet.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No, keep it')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, cancel'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final result = await ApiService.cancelJob(_token!, _activeJob!.id);
+    if (!mounted) return;
+    if (result['error'] != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['error']), backgroundColor: AppTheme.error));
+    } else {
+      _jobPollTimer?.cancel();
+      setState(() { _activeJob = null; _queuePosition = 0; _queueTotal = 0; });
+      // Refresh wallet (refund applied)
+      final w = await ApiService.getWallet(_token!);
+      if (mounted) setState(() => _wallet = (w['wallet'] ?? _wallet).toDouble());
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Job cancelled${result['refunded'] != null && result['refunded'] > 0 ? ' — ₹${result['refunded']} refunded' : ''}'),
+        backgroundColor: AppTheme.success,
+      ));
+    }
+  }
+
   Future<void> _logout() async {
     await AuthService.clearSession();
     if (!mounted) return;
@@ -338,6 +384,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
                                         color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
                               ),
                             ],
+                            if ((_user?.usn ?? '').isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(_user!.usn,
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500)),
+                              ),
+                            ],
                           ]),
                         ],
                       ),
@@ -362,6 +421,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
                             _PrinterStatusBanner(
                               name: _printerName,
                               isOnline: _printerOnline,
+                              unassigned: _printerUnassigned,
+                              maintenance: _printerMaintenance,
                             ),
                           if (!widget.isFaculty && _printerLoaded)
                             const SizedBox(height: 16),
@@ -379,6 +440,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                               job: _activeJob!,
                               queuePosition: _queuePosition,
                               queueTotal: _queueTotal,
+                              onCancel: _activeJob!.isPending ? _cancelJob : null,
                             ),
                             const SizedBox(height: 16),
                           ],
@@ -434,6 +496,21 @@ class _StudentDashboardState extends State<StudentDashboard> {
                           ),
                           const SizedBox(height: 12),
 
+                          // Wallet History
+                          _ActionCard(
+                            icon: Icons.receipt_long_rounded,
+                            title: 'Wallet History',
+                            subtitle: 'Top-ups and print charges',
+                            color: AppTheme.success,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => WalletHistoryScreen(token: _token!),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
                           // Change Password
                           _ActionCard(
                             icon: Icons.lock_outline_rounded,
@@ -461,37 +538,54 @@ class _StudentDashboardState extends State<StudentDashboard> {
 class _PrinterStatusBanner extends StatelessWidget {
   final String name;
   final bool   isOnline;
-  const _PrinterStatusBanner({required this.name, required this.isOnline});
+  final bool   unassigned;
+  final bool   maintenance;
+  const _PrinterStatusBanner({
+    required this.name,
+    required this.isOnline,
+    this.unassigned  = false,
+    this.maintenance = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final Color color;
+    final String statusText;
+    final IconData icon;
+
+    if (unassigned) {
+      color      = AppTheme.warning;
+      statusText = 'Contact admin to assign a printer';
+      icon       = Icons.warning_amber_rounded;
+    } else if (maintenance) {
+      color      = const Color(0xFF7C3AED);
+      statusText = 'Under maintenance — printing paused';
+      icon       = Icons.build_rounded;
+    } else if (isOnline) {
+      color      = AppTheme.success;
+      statusText = 'Online — ready to print';
+      icon       = Icons.print_rounded;
+    } else {
+      color      = AppTheme.error;
+      statusText = 'Offline — contact admin';
+      icon       = Icons.print_rounded;
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isOnline
-            ? AppTheme.success.withValues(alpha: 0.08)
-            : AppTheme.error.withValues(alpha: 0.07),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isOnline
-              ? AppTheme.success.withValues(alpha: 0.35)
-              : AppTheme.error.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(children: [
         Container(
           width: 36, height: 36,
           decoration: BoxDecoration(
-            color: isOnline
-                ? AppTheme.success.withValues(alpha: 0.15)
-                : AppTheme.error.withValues(alpha: 0.12),
+            color: color.withValues(alpha: 0.15),
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            Icons.print_rounded,
-            size: 18,
-            color: isOnline ? AppTheme.success : AppTheme.error,
-          ),
+          child: Icon(icon, size: 18, color: color),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(
@@ -499,25 +593,21 @@ class _PrinterStatusBanner extends StatelessWidget {
           children: [
             Text(
               name.isEmpty ? 'Printer' : name,
-              style: TextStyle(
-                fontWeight: FontWeight.w600, fontSize: 13,
-                color: isOnline ? AppTheme.success : AppTheme.error,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: color),
             ),
-            Text(
-              isOnline ? 'Online — ready to print' : 'Offline — contact admin',
-              style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-            ),
+            Text(statusText,
+                style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
           ],
         )),
+        // Status dot
         Container(
           width: 8, height: 8,
           decoration: BoxDecoration(
-            color: isOnline ? AppTheme.success : AppTheme.error,
+            color: color,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: (isOnline ? AppTheme.success : AppTheme.error).withValues(alpha: 0.4),
+                color: color.withValues(alpha: 0.4),
                 blurRadius: 6, spreadRadius: 1,
               ),
             ],
@@ -533,7 +623,13 @@ class _LiveJobCard extends StatelessWidget {
   final PrintJobModel job;
   final int queuePosition;
   final int queueTotal;
-  const _LiveJobCard({required this.job, this.queuePosition = 0, this.queueTotal = 0});
+  final VoidCallback? onCancel;
+  const _LiveJobCard({
+    required this.job,
+    this.queuePosition = 0,
+    this.queueTotal = 0,
+    this.onCancel,
+  });
 
   Color get _color {
     if (job.isPrinting) return AppTheme.primary;
@@ -633,6 +729,29 @@ class _LiveJobCard extends StatelessWidget {
                 minHeight: 4,
                 backgroundColor: _color.withValues(alpha: 0.12),
                 valueColor: AlwaysStoppedAnimation(_color.withValues(alpha: 0.6)),
+              ),
+            ),
+          // Cancel button — only for pending jobs
+          if (job.isPending && onCancel != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: GestureDetector(
+                onTap: onCancel,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.25)),
+                  ),
+                  child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.cancel_outlined, size: 15, color: AppTheme.error),
+                    SizedBox(width: 6),
+                    Text('Cancel Print Job',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                  ]),
+                ),
               ),
             ),
         ],

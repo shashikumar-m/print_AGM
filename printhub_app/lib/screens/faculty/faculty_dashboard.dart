@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../models/settings_model.dart';
+import '../../models/print_job_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../student/upload_screen.dart';
+import '../student/print_history_screen.dart';
 
 class FacultyDashboard extends StatefulWidget {
   const FacultyDashboard({super.key});
@@ -15,7 +18,7 @@ class FacultyDashboard extends StatefulWidget {
 }
 
 class _FacultyDashboardState extends State<FacultyDashboard> {
-  int _tabIndex = 0; // 0 = Print, 1 = My Students
+  int _tabIndex = 0; // 0 = Print, 1 = My Students, 2 = History
 
   UserModel? _user;
   String? _token;
@@ -24,10 +27,20 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
   bool _loading = true;
   bool _studentsLoading = false;
 
+  // Active job tracker
+  PrintJobModel? _activeJob;
+  Timer?         _jobPollTimer;
+
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _jobPollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -37,8 +50,73 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
     try {
       final s = await ApiService.getSettings();
       setState(() { _settings = s; _loading = false; });
+      _loadActiveJob();
     } catch (_) {
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadActiveJob() async {
+    try {
+      final jobs = await ApiService.getMyJobs(_token!);
+      if (!mounted) return;
+      final active = jobs.where((j) => j.isPending || j.isPrinting).toList();
+      setState(() => _activeJob = active.isEmpty ? null : active.first);
+      if (_activeJob != null) _startJobPolling();
+    } catch (_) {}
+  }
+
+  void _startJobPolling() {
+    _jobPollTimer?.cancel();
+    _jobPollTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
+      if (_activeJob == null) { _jobPollTimer?.cancel(); return; }
+      try {
+        final data = await ApiService.getJobStatus(_token!, _activeJob!.id);
+        if (!mounted) return;
+        final newStatus = data['status'] ?? _activeJob!.status;
+        setState(() => _activeJob = PrintJobModel(
+          id: _activeJob!.id, fileName: data['fileName'] ?? _activeJob!.fileName,
+          pages: data['pages'] ?? _activeJob!.pages, cost: _activeJob!.cost,
+          status: newStatus, duplex: _activeJob!.duplex,
+          printerLocationName: data['printerLocationName'] ?? _activeJob!.printerLocationName,
+          createdAt: _activeJob!.createdAt, studentName: _activeJob!.studentName,
+        ));
+        if (newStatus == 'completed' || newStatus == 'failed' || newStatus == 'cancelled') {
+          _jobPollTimer?.cancel();
+        }
+      } catch (_) {}
+    });
+  }
+
+  Future<void> _cancelJob() async {
+    if (_activeJob == null || !_activeJob!.isPending) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Cancel Print Job'),
+        content: Text('Cancel "${_activeJob!.fileName}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No, keep it')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, cancel'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final result = await ApiService.cancelJob(_token!, _activeJob!.id);
+    if (!mounted) return;
+    if (result['error'] != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result['error']), backgroundColor: AppTheme.error));
+    } else {
+      _jobPollTimer?.cancel();
+      setState(() => _activeJob = null);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Job cancelled'), backgroundColor: AppTheme.success));
     }
   }
 
@@ -141,6 +219,7 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
                     children: [
                       _tabBtn(0, Icons.print_rounded, 'Print'),
                       _tabBtn(1, Icons.people_rounded, 'My Students'),
+                      _tabBtn(2, Icons.history_rounded, 'History'),
                     ],
                   ),
                 ),
@@ -149,14 +228,22 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
                 // Tab content
                 Expanded(
                   child: _tabIndex == 0
-                      ? _PrintTab(token: _token!, settings: _settings)
-                      : _StudentsTab(
+                      ? _PrintTab(
                           token: _token!,
-                          students: _students,
-                          loading: _studentsLoading,
-                          assignedSection: _user?.assignedSection ?? '',
-                          onLoad: _loadStudents,
-                        ),
+                          settings: _settings,
+                          activeJob: _activeJob,
+                          onCancel: _activeJob?.isPending == true ? _cancelJob : null,
+                          onJobSubmitted: _loadActiveJob,
+                        )
+                      : _tabIndex == 1
+                          ? _StudentsTab(
+                              token: _token!,
+                              students: _students,
+                              loading: _studentsLoading,
+                              assignedSection: _user?.assignedSection ?? '',
+                              onLoad: _loadStudents,
+                            )
+                          : PrintHistoryScreen(token: _token!),
                 ),
               ],
             ),
@@ -199,7 +286,24 @@ class _FacultyDashboardState extends State<FacultyDashboard> {
 class _PrintTab extends StatelessWidget {
   final String token;
   final SettingsModel settings;
-  const _PrintTab({required this.token, required this.settings});
+  final PrintJobModel? activeJob;
+  final VoidCallback? onCancel;
+  final VoidCallback? onJobSubmitted;
+
+  const _PrintTab({
+    required this.token,
+    required this.settings,
+    this.activeJob,
+    this.onCancel,
+    this.onJobSubmitted,
+  });
+
+  Color _jobColor(PrintJobModel job) {
+    if (job.isPrinting) return AppTheme.primary;
+    if (job.isCompleted) return AppTheme.success;
+    if (job.isFailed) return AppTheme.error;
+    return AppTheme.warning;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -208,6 +312,11 @@ class _PrintTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Active job card
+          if (activeJob != null) ...[
+            _buildActiveJobCard(context, activeJob!),
+            const SizedBox(height: 16),
+          ],
           // Free printing card
           Container(
             width: double.infinity,
@@ -260,11 +369,14 @@ class _PrintTab extends StatelessWidget {
 
           // Upload card
           GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(
-              builder: (_) => UploadScreen(
-                token: token, wallet: 0, settings: settings, isFaculty: true,
-              ),
-            )),
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(
+                builder: (_) => UploadScreen(
+                  token: token, wallet: 0, settings: settings, isFaculty: true,
+                ),
+              ));
+              onJobSubmitted?.call();
+            },
             child: Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -294,6 +406,95 @@ class _PrintTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildActiveJobCard(BuildContext context, PrintJobModel job) {
+    final c = _jobColor(job);
+    final labels = {
+      'pending': 'Waiting in queue…',
+      'printing': 'Printing now…',
+      'completed': 'Ready to collect!',
+      'failed': 'Print failed',
+      'cancelled': 'Job cancelled',
+    };
+    final icons = {
+      'pending': Icons.hourglass_top_rounded,
+      'printing': Icons.print_rounded,
+      'completed': Icons.check_circle_rounded,
+      'failed': Icons.error_rounded,
+      'cancelled': Icons.cancel_rounded,
+    };
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.withValues(alpha: 0.4), width: 1.5),
+        boxShadow: [BoxShadow(color: c.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            Container(
+              width: 42, height: 42,
+              decoration: BoxDecoration(color: c.withValues(alpha: 0.1), shape: BoxShape.circle),
+              child: Icon(icons[job.status] ?? Icons.print_rounded, color: c, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(labels[job.status] ?? job.status,
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: c)),
+              Text(job.fileName,
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (job.printerLocationName.isNotEmpty)
+                Row(children: [
+                  const Icon(Icons.print_rounded, size: 11, color: AppTheme.textSecondary),
+                  const SizedBox(width: 3),
+                  Text(job.printerLocationName,
+                      style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                ]),
+            ])),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+              child: Text('${job.pages}p', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: c)),
+            ),
+          ]),
+        ),
+        if (job.isPending || job.isPrinting)
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+            child: LinearProgressIndicator(
+              minHeight: 3,
+              backgroundColor: c.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation(c.withValues(alpha: 0.6)),
+            ),
+          ),
+        if (job.isPending && onCancel != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+            child: GestureDetector(
+              onTap: onCancel,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.error.withValues(alpha: 0.25)),
+                ),
+                child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.cancel_outlined, size: 15, color: AppTheme.error),
+                  SizedBox(width: 6),
+                  Text('Cancel Print Job',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error)),
+                ]),
+              ),
+            ),
+          ),
+      ]),
     );
   }
 }
@@ -339,7 +540,119 @@ class _StudentsTabState extends State<_StudentsTab> {
     final q = _query.toLowerCase();
     return widget.students.where((s) =>
         s.name.toLowerCase().contains(q) ||
-        s.email.toLowerCase().contains(q)).toList();
+        s.email.toLowerCase().contains(q) ||
+        s.usn.toLowerCase().contains(q)).toList();
+  }
+
+  void _showAddStudent(BuildContext context) {
+    final nameCtrl  = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final passCtrl  = TextEditingController(text: 'student123');
+    final usnCtrl   = TextEditingController();
+    bool saving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Add Student',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                      const SizedBox(height: 2),
+                      Text('Will be added to ${widget.assignedSection} section',
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                    ])),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ]),
+                  const SizedBox(height: 16),
+                  _field(nameCtrl,  'Full Name *',    'Student full name',  Icons.person_outline),
+                  const SizedBox(height: 12),
+                  _field(usnCtrl,   'USN / Roll No',  'e.g. 1AG22CS001',   Icons.badge_outlined),
+                  const SizedBox(height: 12),
+                  _field(emailCtrl, 'Email *',        'student@email.com',  Icons.email_outlined,
+                      type: TextInputType.emailAddress),
+                  const SizedBox(height: 12),
+                  _field(passCtrl,  'Password *',     'Min 6 characters',   Icons.lock_outline,
+                      obscure: true),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity, height: 50,
+                    child: ElevatedButton(
+                      onPressed: saving ? null : () async {
+                        final name  = nameCtrl.text.trim();
+                        final email = emailCtrl.text.trim();
+                        final pass  = passCtrl.text;
+                        final usn   = usnCtrl.text.trim();
+                        if (name.isEmpty || email.isEmpty || pass.length < 6) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('Fill all required fields (password min 6 chars)'),
+                            backgroundColor: AppTheme.error));
+                          return;
+                        }
+                        setSheet(() => saving = true);
+                        final data = await ApiService.facultyAddStudent(widget.token, {
+                          'name': name, 'email': email,
+                          'password': pass, 'usn': usn,
+                        });
+                        setSheet(() => saving = false);
+                        if (!ctx.mounted) return;
+                        if (data['error'] != null) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(data['error']), backgroundColor: AppTheme.error));
+                        } else {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('Student "$name" added to ${widget.assignedSection}'),
+                              backgroundColor: AppTheme.success));
+                          widget.onLoad();
+                        }
+                      },
+                      child: saving
+                          ? const SizedBox(width: 22, height: 22,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                          : const Text('Add Student',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _field(TextEditingController ctrl, String label, String hint, IconData icon,
+      {TextInputType type = TextInputType.text, bool obscure = false}) {
+    return TextField(
+      controller: ctrl, keyboardType: type, obscureText: obscure,
+      decoration: InputDecoration(
+        labelText: label, hintText: hint, prefixIcon: Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
   }
 
   void _showAddFunds(BuildContext context, UserModel student) {
@@ -447,7 +760,18 @@ class _StudentsTabState extends State<_StudentsTab> {
 
     final filtered = _filtered;
 
-    return Column(
+    return Scaffold(
+      backgroundColor: AppTheme.surface,
+      floatingActionButton: widget.assignedSection.isNotEmpty
+          ? FloatingActionButton.extended(
+              onPressed: () => _showAddStudent(context),
+              backgroundColor: AppTheme.primary,
+              icon: const Icon(Icons.person_add_rounded, color: Colors.white),
+              label: const Text('Add Student',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            )
+          : null,
+      body: Column(
       children: [
         // Search bar + section label
         Container(
@@ -472,7 +796,7 @@ class _StudentsTabState extends State<_StudentsTab> {
                 controller: _searchCtrl,
                 onChanged: (v) => setState(() => _query = v),
                 decoration: InputDecoration(
-                  hintText: 'Search by name or email…',
+                  hintText: 'Search name, email or USN…',
                   hintStyle: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary),
                   suffixIcon: _query.isNotEmpty
@@ -560,6 +884,16 @@ class _StudentsTabState extends State<_StudentsTab> {
                                     const SizedBox(height: 2),
                                     Text(student.email,
                                         style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                                    if (student.usn.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Row(children: [
+                                        const Icon(Icons.badge_outlined, size: 11, color: AppTheme.textSecondary),
+                                        const SizedBox(width: 3),
+                                        Text(student.usn,
+                                            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary,
+                                                fontWeight: FontWeight.w500)),
+                                      ]),
+                                    ],
                                   ],
                                 )),
                                 // Wallet + add funds
@@ -587,6 +921,7 @@ class _StudentsTabState extends State<_StudentsTab> {
                 ),
         ),
       ],
-    );
+    ),
+  );
   }
 }
